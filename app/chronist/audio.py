@@ -26,6 +26,7 @@ def audio_streams(path):
 def extract(path, index, out_wav):
     r = _run([FFMPEG, "-y", "-hide_banner", "-loglevel", "error", "-i", str(path),
               "-map", f"0:a:{index}", "-ac", "1", "-ar", str(SR),
+              "-af", "highpass=f=70,dynaudnorm=f=200:g=15:p=0.9",
               "-c:a", "pcm_s16le", str(out_wav)])
     if r.returncode != 0:
         raise RuntimeError("Tonspur konnte nicht gelesen werden:\n"

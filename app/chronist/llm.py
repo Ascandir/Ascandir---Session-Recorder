@@ -188,6 +188,18 @@ def resolved_mode():
 
 
 # ---------- Start / Stopp ----------
+ACTIVE = set()
+
+
+def stop_all():
+    """Beim Beenden des Programms: alle vom Tool gestarteten KIs stoppen."""
+    for k in list(ACTIVE):
+        try:
+            k.stop()
+        except Exception:
+            pass
+
+
 class KI:
     """Kontextmanager: stellt eine laufende KI bereit und räumt danach auf."""
 
@@ -230,6 +242,7 @@ class KI:
             kw["stdin"] = subprocess.PIPE
         self.proc = subprocess.Popen(cmd, shell=(kind == "shell"), **kw)
         self.started = True
+        ACTIVE.add(self)
         if kw.get("stdin"):
             try:  # Rückfragen beim Start mit der Empfehlung (Enter) beantworten
                 self.proc.stdin.write(b"\r\n" * 40)
@@ -296,6 +309,7 @@ class KI:
                 for pid in _listener_pids(_port(self.url)):
                     _kill_tree(pid)
         self.started = False
+        ACTIVE.discard(self)
 
     def __exit__(self, *exc):
         try:

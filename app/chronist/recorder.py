@@ -23,13 +23,16 @@ def list_mics():
     """[(Anzeigename, Geräte-Index)] – Standardmikro zuerst."""
     try:
         import sounddevice as sd
-        default_in = sd.default.device[0]
-        hostapi_mme = next((i for i, h in enumerate(sd.query_hostapis()) if "MME" in h["name"]), None)
+        apis = sd.query_hostapis()
+        pick = next((i for i, h in enumerate(apis) if "WASAPI" in h["name"]), None)
+        if pick is None:
+            pick = next((i for i, h in enumerate(apis) if "MME" in h["name"]), None)
+        default_in = apis[pick]["default_input_device"] if pick is not None else sd.default.device[0]
         out, seen = [], set()
         for i, d in enumerate(sd.query_devices()):
             if d["max_input_channels"] < 1:
                 continue
-            if hostapi_mme is not None and d["hostapi"] != hostapi_mme:
+            if pick is not None and d["hostapi"] != pick:
                 continue        # jedes Gerät nur einmal zeigen
             name = d["name"]
             if name in seen or "Zuordnung" in name or "Mapper" in name:
@@ -79,14 +82,16 @@ class _Track:
     def start(self, t0):
         self.t0 = t0
 
-    def add(self, mono, now):
+    def add(self, mono, now, fill_pauses=False):
+        """fill_pauses: nur für Discord – liefert in Stille gar keine Daten. Dann (und nur dann)
+        wird die Pause mit Stille aufgefüllt, damit die Spuren zeitlich zusammenpassen."""
         if self.t0 is None or len(mono) == 0:
             return
-        # Wo müssten wir laut Uhr am Ende dieses Stücks sein?
-        expected_end = int((now - self.t0) * self.sr)
-        gap = expected_end - (self.written + len(mono))
-        if gap > self.sr * 0.15:
-            self._silence(gap)
+        if fill_pauses and (self.last_data == 0.0 or now - self.last_data > 0.6):
+            expected_end = int((now - self.t0) * self.sr)
+            gap = expected_end - (self.written + len(mono))
+            if gap > self.sr * 0.3:
+                self._silence(gap)
         self.file.write(np.clip(mono, -1, 1).astype(np.float32))
         self.written += len(mono)
         rms = float(np.sqrt(np.mean(mono ** 2)) + 1e-9)
@@ -97,6 +102,8 @@ class _Track:
         expected = int((now - self.t0) * self.sr)
         if expected - self.written > self.sr * 0.5:
             self._silence(expected - self.written)
+
+    def decay(self):
         self.level *= 0.5
 
     def _silence(self, n):
@@ -152,16 +159,21 @@ class Recorder:
 
         dev = sd.query_devices(mic_index) if mic_index is not None else sd.query_devices(kind="input")
         mic_sr = int(dev["default_samplerate"]) or 48000
+        mic_ch = max(1, min(2, int(dev["max_input_channels"])))
         self.mic = _Track(tmp / "mikro.flac", mic_sr)
         self.dis = _Track(tmp / "discord.flac", 48000)
         self._q = queue.Queue()
         self._stop.clear()
 
         def mic_cb(indata, frames, t, status):
-            self._q.put(("m", indata[:, 0].copy(), time.monotonic()))
+            if status and status.input_overflow:
+                self.overflows += 1
+            self._q.put(("m", indata.mean(axis=1) if indata.shape[1] > 1 else indata[:, 0].copy(),
+                         time.monotonic()))
 
-        self._stream = sd.InputStream(device=mic_index, channels=1, samplerate=mic_sr,
-                                      dtype="float32", blocksize=int(mic_sr * 0.1),
+        self.overflows = 0
+        self._stream = sd.InputStream(device=mic_index, channels=mic_ch, samplerate=mic_sr,
+                                      dtype="float32", blocksize=0, latency="high",
                                       callback=mic_cb)
         t0 = time.monotonic()
         self.mic.start(t0)
@@ -179,20 +191,22 @@ class Recorder:
             try:
                 kind, data, t = self._q.get(timeout=0.5)
             except queue.Empty:
-                now = time.monotonic()
-                self.mic.pad_to(now)
-                self.dis.pad_to(now)
+                self.mic.decay(); self.dis.decay()
                 continue
             try:
-                (self.mic if kind == "m" else self.dis).add(data, t)
                 if kind == "m":
-                    self.dis.pad_to(t)   # Discord liefert in Stille nichts – auffüllen
+                    self.mic.add(data, t)
+                    if time.monotonic() - max(self.dis.last_data, self.dis.t0 or 0) > 0.6:
+                        self.dis.decay()
+                else:
+                    self.dis.add(data, t, fill_pauses=True)
             except Exception as e:  # pragma: no cover
                 self.error = f"Schreibfehler: {e}"
 
     def _discord_loop(self):
         """Hängt sich an Discord. Wird Discord neu gestartet, verbindet es sich neu."""
         cap = None
+        last_check = time.monotonic()
         while not self._stop.is_set():
             if cap is None:
                 pid = find_discord()
@@ -211,7 +225,7 @@ class Recorder:
                     self._stop.wait(3)
                     continue
             try:
-                data = cap.read(timeout=0.5)
+                data = cap.read(timeout=0.2)
             except Exception:
                 data = None
                 try:
@@ -225,8 +239,14 @@ class Recorder:
                 if len(x) >= 2:
                     mono = x[: len(x) // 2 * 2].reshape(-1, 2).mean(axis=1)
                     self._q.put(("d", mono, time.monotonic()))
-            if cap is not None and find_discord() is None:
-                cap = None
+            if cap is not None and time.monotonic() - last_check > 5:
+                last_check = time.monotonic()
+                if find_discord() is None:
+                    try:
+                        cap.close()
+                    except Exception:
+                        pass
+                    cap = None
         if cap is not None:
             try:
                 cap.stop(); cap.close()
@@ -245,7 +265,12 @@ class Recorder:
         for th in self._threads:
             th.join(timeout=5)
         end = time.monotonic()
-        self.mic.pad_to(end); self.dis.pad_to(end)
+        self.dis.pad_to(end)
+        # gleiche Länge (Mikro ist die Referenz)
+        mic_len = self.mic.written / self.mic.sr
+        dis_len = self.dis.written / self.dis.sr
+        if dis_len < mic_len:
+            self.dis._silence(int((mic_len - dis_len) * self.dis.sr))
         self.mic.close(); self.dis.close()
         self.running = False
         r = subprocess.run([FFMPEG, "-y", "-hide_banner", "-loglevel", "error",
@@ -256,6 +281,14 @@ class Recorder:
         if r.returncode != 0:
             self.error = r.stderr.decode("utf-8", "replace")[-500:]
             return None
+        # Zusätzlich eine normale MP3 zum Anhören (beide Spuren gemischt, lautstärke-angeglichen)
+        mp3 = self.out_path.with_suffix(".mp3")
+        subprocess.run([FFMPEG, "-y", "-hide_banner", "-loglevel", "error",
+                        "-i", str(self.mic.path), "-i", str(self.dis.path),
+                        "-filter_complex", "[0:a]dynaudnorm=f=200:g=15[a];[1:a]dynaudnorm=f=200:g=15[b];"
+                                           "[a][b]amix=inputs=2:normalize=0,alimiter=limit=0.95",
+                        "-ac", "1", "-ar", "44100", "-b:a", "96k", str(mp3)],
+                       capture_output=True, creationflags=_NOWIN)
         self.mic.path.unlink(missing_ok=True)
         self.dis.path.unlink(missing_ok=True)
         return str(self.out_path)

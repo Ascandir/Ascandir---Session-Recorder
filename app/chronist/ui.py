@@ -24,7 +24,8 @@ def recordings():
     folder = Path(C.settings()["aufnahme_ordner"])
     if not folder.exists():
         return []
-    files = [p for p in folder.iterdir() if p.suffix.lower() in EXT and p.is_file()]
+    files = [p for p in folder.iterdir() if p.suffix.lower() in EXT and p.is_file()
+             and not (p.suffix.lower() == ".mp3" and p.with_suffix(".mka").exists())]
     files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     out = []
     for p in files[:30]:
@@ -319,7 +320,9 @@ def do_rec_stop():
     path = REC.stop()
     if not path:
         raise gr.Error("Beim Speichern ist etwas schiefgegangen: " + (REC.error or "unbekannt"))
-    msg = (f"### ✅ Aufnahme gespeichert\n`{Path(path).name}`\n\n"
+    warn = f"\n\n⚠️ Das Mikro hat {REC.overflows}× kurz gestockt." if getattr(REC, "overflows", 0) > 5 else ""
+    msg = (f"### ✅ Aufnahme gespeichert\n`{Path(path).name}` – zum Anhören liegt daneben "
+           f"`{Path(path).with_suffix('.mp3').name}`.{warn}\n\n"
            "Wenn du so weit bist: Tab **Session auswerten** – die Aufnahme ist schon ausgewählt.")
     return (msg, gr.update(interactive=True), gr.update(interactive=False), gr.Timer(active=False),
             gr.update(choices=recordings(), value=path),
@@ -353,11 +356,55 @@ def do_update(progress=gr.Progress()):
             "nach dem Update von selbst neu. Du kannst diesen Tab schließen."), gr.update(visible=False)
 
 
+WINDOW = None
+
+
+def shutdown():
+    """Beendet wirklich alles: Aufnahme (wird gespeichert), gestartete KI, Unterprozesse, Python."""
+    try:
+        if REC.running:
+            REC.stop()
+    except Exception:
+        pass
+    try:
+        L.stop_all()
+    except Exception:
+        pass
+    try:
+        import psutil
+        me = psutil.Process()
+        kids = me.children(recursive=True)
+        for k in kids:
+            try:
+                k.terminate()
+            except Exception:
+                pass
+        psutil.wait_procs(kids, timeout=3)
+        for k in kids:
+            try:
+                k.kill()
+            except Exception:
+                pass
+    except Exception:
+        pass
+    os._exit(0)
+
+
+def close_app():
+    if WINDOW is not None:
+        try:
+            WINDOW.destroy()      # webview.start() kehrt zurück → shutdown()
+            return
+        except Exception:
+            pass
+    shutdown()
+
+
 def do_quit():
     if REC.running:
         raise gr.Error("Erst die Aufnahme beenden.")
-    threading.Timer(0.8, lambda: os._exit(0)).start()
-    return "👋 Der SessionRecorder wurde beendet. Du kannst den Tab schließen."
+    threading.Timer(0.5, close_app).start()
+    return "👋 Der SessionRecorder wird beendet …"
 
 
 # ---------- Oberfläche ----------
@@ -590,22 +637,53 @@ def build():
     return app, theme
 
 
+def _open_window(url, own_server):
+    """Eigenes Programmfenster (WebView2). Schließen = alles beenden."""
+    global WINDOW
+    import webview
+    WINDOW = webview.create_window("Ascandir - SessionRecorder", url, width=1320, height=920,
+                                   min_size=(980, 680), background_color="#15110e", text_select=True)
+
+    def on_closing():
+        if own_server and REC.running:
+            ok = WINDOW.create_confirmation_dialog(
+                "Aufnahme läuft", "Die Aufnahme läuft noch.\nAufnahme beenden, speichern und das Programm schließen?")
+            if not ok:
+                return False
+        return True
+    WINDOW.events.closing += on_closing
+    webview.start(private_mode=False, storage_path=str(C.DATA / "fenster"))
+
+
 def launch():
     import socket
     import webbrowser
+    dark = C.settings().get("design", "Dunkel") == "Dunkel"
+    url = "http://127.0.0.1:7860/" + ("?__theme=dark" if dark else "?__theme=light")
     with socket.socket() as sock:
         if sock.connect_ex(("127.0.0.1", 7860)) == 0:
-            print("Der SessionRecorder läuft schon – ich öffne ihn im Browser.")
-            webbrowser.open("http://127.0.0.1:7860/?__theme=" +
-                            ("dark" if C.settings().get("design", "Dunkel") == "Dunkel" else "light"))
+            print("Der SessionRecorder läuft schon – öffne ein Fenster dazu.")
+            try:
+                _open_window(url, own_server=False)
+            except Exception:
+                webbrowser.open(url)
             return
     app, theme = build()
-    dark = C.settings().get("design", "Dunkel") == "Dunkel"
     js = ("() => { document.body.classList.add('dark'); }" if dark
           else "() => { document.body.classList.remove('dark'); }")
-    threading.Timer(2.5, lambda: webbrowser.open(
-        "http://127.0.0.1:7860/" + ("?__theme=dark" if dark else "?__theme=light"))).start()
     app.queue().launch(server_name="127.0.0.1", server_port=7860, inbrowser=False,
+                       prevent_thread_lock=True,
                        theme=theme, js=js, show_error=True, quiet=True,
                        css="footer {display: none !important;}",
                        allowed_paths=[str(C.SESSIONS), str(C.RECORDINGS), str(C.IMAGES)])
+    try:
+        _open_window(url, own_server=True)
+    except Exception as e:      # kein WebView2 o. Ä. → Browser als Notlösung
+        print("Fenster nicht möglich, öffne Browser:", e)
+        webbrowser.open(url)
+        try:
+            while True:
+                time.sleep(3600)
+        except KeyboardInterrupt:
+            pass
+    shutdown()

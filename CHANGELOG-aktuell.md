@@ -1,3 +1,4 @@
-- **Ein Klick:** „▶ Analysieren“ macht jetzt alles – Abschrift, Stimmen erkennen, KI starten, Chronik + Comic-Vorlage, KI beenden.
-- Nur bei neuen Stimmen hält das Tool kurz an („Wer ist wer?“ → Weiter).
-- KI-Wahl **Automatisch** (Standard): Strata, wenn vorhanden – sonst die eingebaute KI.
+- **Aufnahme repariert:** keine Lücken/Knackser mehr (Fehler beim zeitlichen Ausgleich der Spuren behoben), Discord-Ton geht nicht mehr verloren, bessere Mikro-Anbindung (WASAPI)
+- Leise Stimmen werden vor der Spracherkennung angeglichen – die Abschrift wird deutlich besser
+- Zusätzlich eine normale **.mp3 zum Anhören** neben jeder Aufnahme
+- **Eigenes Programmfenster** statt Browser – Schließen beendet alles (auch Python und die KI); laufende Aufnahmen werden vorher gespeichert
