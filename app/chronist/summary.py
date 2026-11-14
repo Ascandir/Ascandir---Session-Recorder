@@ -10,9 +10,9 @@ SYSTEM = ("Du bist der Chronist einer Dungeons-&-Dragons-Gruppe. Du schreibst au
           "lebendig, aber sachlich korrekt. Du erfindest nichts dazu, was nicht in der Vorlage steht.")
 
 
-def _client(st):
-    return OpenAI(base_url=st["llm_url"].rstrip("/"), api_key=st.get("llm_key") or "lokal",
-                  timeout=900)
+def _client(url):
+    return OpenAI(base_url=url.rstrip("/"), api_key=C.settings().get("llm_key") or "lokal",
+                  timeout=1800)
 
 
 def _model(cl, st):
@@ -25,6 +25,8 @@ def _model(cl, st):
 
 
 def _chat(cl, model, prompt, max_tokens=2500):
+    if C.settings().get("ki_modus") == "Eingebaute KI":
+        prompt = prompt + "\n\n/no_think"      # Qwen3: ohne langes Nachdenken antworten
     r = cl.chat.completions.create(
         model=model, temperature=0.4, max_tokens=max_tokens,
         messages=[{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}])
@@ -33,12 +35,11 @@ def _chat(cl, model, prompt, max_tokens=2500):
     return txt.strip()
 
 
-def test_connection():
+def ask(url, prompt, max_tokens=500):
     st = C.settings()
-    cl = _client(st)
+    cl = _client(url)
     m = _model(cl, st)
-    a = _chat(cl, m, "Antworte nur mit: Bereit.", 20)
-    return f"Verbunden mit Modell '{m}'. Antwort: {a}"
+    return f"Modell '{m}' antwortet: {_chat(cl, m, prompt, max_tokens)}"
 
 
 def _gruppe_text(grp):
@@ -134,16 +135,16 @@ Für jedes Panel in Markdown:
 - **Bild-Prompt (Englisch):** eine Beschreibung für einen Bildgenerator, beginnend mit „comic book panel, fantasy,“"""
 
 
-def summarize(state, progress=lambda f, m: None):
+def summarize(state, url, progress=lambda f, m: None):
     st = C.settings()
     grp = C.group()
     folder = Path(state["ordner"])
     text = (folder / "transkript.txt").read_text(encoding="utf-8")
     if not text.strip():
         raise RuntimeError("Die Abschrift ist leer.")
-    cl = _client(st)
+    cl = _client(url)
     progress(0.02, "Verbinde mit dem Sprachmodell ...")
-    model = _model(cl, st)
+    model = _model(cl, st) if C.settings().get("ki_modus") != "Eingebaute KI" else "lokal"
     g = _gruppe_text(grp)
     size = int(st["chunk_zeichen"])
     parts = _chunks(text, size)
@@ -172,13 +173,13 @@ def summarize(state, progress=lambda f, m: None):
     return final
 
 
-def comic(state, progress=lambda f, m: None):
+def comic(state, url, progress=lambda f, m: None):
     st = C.settings()
     folder = Path(state["ordner"])
     zf = folder / "zusammenfassung.md"
     if not zf.exists():
         raise RuntimeError("Bitte zuerst die Zusammenfassung erstellen.")
-    cl = _client(st)
+    cl = _client(url)
     progress(0.1, "Comic-Vorlage wird geschrieben ...")
     out = _chat(cl, _model(cl, st), COMIC.format(gruppe=_gruppe_text(C.group()),
                                                  text=zf.read_text(encoding="utf-8")), 4000)

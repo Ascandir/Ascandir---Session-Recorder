@@ -49,14 +49,22 @@
 
 <h2>Session auswerten</h2>
 <ol>
-  <li><b>Strata starten</b> (für die Zusammenfassung).</li>
-  <li>Tab <b>📜 Session auswerten</b> – die neue Aufnahme und ihr Name sind schon eingetragen. Prüfen wie viele Leute außer dir dabei waren.</li>
+    <li>Tab <b>📜 Session auswerten</b> – die neue Aufnahme und ihr Name sind schon eingetragen. Prüfen wie viele Leute außer dir dabei waren.</li>
   <li><b>1 · Analysieren</b>. Jetzt arbeitet der PC: bei 3 Stunden grob 20–60 Minuten.</li>
   <li><b>Wer ist wer?</b> In jede Stimme reinhören und den Spieler wählen. Ab der zweiten Session erkennt das Tool die Stimmen meist selbst – dann nur kurz prüfen.</li>
-  <li><b>2 · Abschrift &amp; Zusammenfassung erstellen</b>. Danach siehst du die Chronik.</li>
-  <li>Optional: <b>🖼️ Comic-Vorlage erstellen</b> – Panels mit Szenen, Sprechblasen und englischen Bild-Prompts für einen Bildgenerator.</li>
+  <li><b>2 · Abschrift &amp; Zusammenfassung erstellen</b>. Das Tool startet dafür selbst die lokale KI (dein Strata) und beendet sie danach wieder – die Grafikkarte ist anschließend frei. Lief Strata vorher schon, bleibt es an. Mit dem Häkchen „Comic-Vorlage gleich mit erstellen“ passiert beides in einem Rutsch.</li>
+  <li>Die Comic-Vorlage enthält Panels mit Szenen, Sprechblasen und englischen Bild-Prompts für einen Bildgenerator. Nachträglich geht das auch über <b>🖼️ Comic-Vorlage erstellen</b>.</li>
 </ol>
 <p>Zum Schließen oben rechts auf <b>⏻ Beenden</b> klicken.</p>
+
+<h2>Lokale KI</h2>
+<p>Unter <b>⚙️ Einstellungen → Lokale KI</b> wählst du:</p>
+<ul>
+<li><b>Strata</b> – das Tool findet dein Strata selbst (App oder <code>strata launch</code>), startet es für die Zusammenfassung und beendet es danach. Wird es nicht gefunden, trag unter „Strata-Einstellungen“ den Pfad zur <code>Strata.exe</code> ein.</li>
+<li><b>Eingebaute KI</b> – für PCs ohne Strata: wird beim ersten Bedarf automatisch installiert (ca. 9&nbsp;GB, Qwen3-14B auf der Grafikkarte) und ebenfalls nur bei Bedarf gestartet.</li>
+<li><b>Eigene Adresse</b> – für eine KI, die du selbst startest.</li>
+</ul>
+<p>Mit <b>KI testen</b> siehst du, ob Starten, Antworten und Beenden klappen.</p>
 
 <h2>Updates</h2>
 <p>Oben rechts auf <b>⬆️ Updates</b> klicken. Gibt es eine neue Version, siehst du, was sich geändert hat, und installierst sie mit <b>Jetzt aktualisieren</b> – das Tool schließt sich, aktualisiert sich und startet neu. Gruppe, Bilder, Aufnahmen und Chroniken bleiben erhalten. Beim Start schaut das Tool auch von selbst nach (abschaltbar unter Einstellungen); dabei wird nur die Versionsnummer bei GitHub abgefragt.</p>
@@ -75,7 +83,7 @@
   <tr><th>Problem</th><th>Lösung</th></tr>
   <tr><td>„Discord läuft nicht“</td><td>Die Discord-<b>App</b> starten (Discord im Browser wird nicht erkannt). Startet Discord während der Aufnahme neu, verbindet sich das Tool von selbst wieder.</td></tr>
   <tr><td>Discord-Balken bewegt sich nicht</td><td>Kurz prüfen, ob du die anderen hörst. Manche Windows-Versionen vor 2020 unterstützen die Programm-Aufnahme nicht – dann Windows aktualisieren.</td></tr>
-  <tr><td>„Keine Verbindung zum Sprachmodell“</td><td>Strata läuft nicht. Starten und nochmal auf Schritt 2 klicken – die Analyse muss nicht wiederholt werden. Im Tab <b>⚙️ Einstellungen</b> kannst du die Verbindung testen.</td></tr>
+  <tr><td>Strata startet nicht / „hat nicht geantwortet“</td><td>Unter <b>⚙️ Einstellungen → Lokale KI → Strata-Einstellungen</b> den Pfad zur <code>Strata.exe</code> eintragen und <b>KI testen</b> drücken. Dauert das Laden länger, die Wartezeit erhöhen. Details stehen in <code>daten\ki-log.txt</code>. Nochmal Schritt 2 klicken – die Analyse muss nicht wiederholt werden.</td></tr>
   <tr><td>Sätze landen bei der falschen Person</td><td>Bei „Wer ist wer?“ prüfen. Sind zwei Leute zu einer Stimme verschmolzen: die richtige Anzahl eintragen und neu analysieren.</td></tr>
   <tr><td>Abschrift klingt unsauber</td><td>Unter <b>⚙️ Einstellungen → Spracherkennung</b> <code>large-v3</code> wählen (genauer, aber langsamer; lädt beim ersten Mal nochmal ca. 3&nbsp;GB).</td></tr>
   <tr><td>Tool öffnet sich nicht</td><td>In <code>daten\log.txt</code> im Installationsordner steht, was schiefging – die Datei an Claude schicken.</td></tr>

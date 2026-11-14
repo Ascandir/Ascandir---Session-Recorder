@@ -1,5 +1,4 @@
-- Aufnahme mit Session-Namen – so heißt dann auch die Datei
-- Update-Knopf im Tool (⬆️ Updates oben rechts)
-- Charakterbilder in der Gruppe
-- Auswahl, wer der Spielleiter (DM) ist
-- Neuer Name: Ascandir · SessionRecorder
+- **Lokale KI startet und stoppt automatisch:** Für die Zusammenfassung startet das Tool dein Strata selbst und beendet es danach wieder (Grafikkarte wird frei). Lief Strata schon vorher, bleibt es an.
+- **Eingebaute KI** für PCs ohne Strata: wird bei Bedarf automatisch installiert (Qwen3-14B, ca. 9 GB) und nur bei Bedarf gestartet.
+- Neue Einstellungen unter ⚙️ → Lokale KI, inkl. „KI testen“ (starten → fragen → beenden)
+- Comic-Vorlage kann direkt in Schritt 2 mit erstellt werden

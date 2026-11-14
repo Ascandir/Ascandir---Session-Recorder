@@ -26,6 +26,10 @@ DEFAULT_SETTINGS = {
     "design": "Dunkel",
     "update_repo": "Ascandir/Ascandir---Session-Recorder",
     "update_beim_start": True,
+    "ki_modus": "",              # leer = automatisch (Strata wenn gefunden, sonst eingebaute KI)
+    "strata_befehl": "",
+    "strata_beenden": True,
+    "strata_wartezeit": 900,
     "match_schwelle": 0.55,
     "chunk_zeichen": 12000,
 }
@@ -69,7 +73,14 @@ def save(name, data):
 
 
 def settings():
-    return load("einstellungen", DEFAULT_SETTINGS)
+    st = load("einstellungen", DEFAULT_SETTINGS)
+    if not st.get("ki_modus"):
+        try:
+            from .llm import find_strata
+            st["ki_modus"] = "Strata" if find_strata() else "Eingebaute KI"
+        except Exception:
+            st["ki_modus"] = "Strata"
+    return st
 
 
 def group():

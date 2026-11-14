@@ -12,6 +12,7 @@ from . import pipeline as P
 from . import summary as S
 from .recorder import REC, find_discord, list_mics
 from . import updater as U
+from . import llm as L
 
 MAX_STIMMEN = 12
 MAX_BILDER = 10
@@ -101,26 +102,34 @@ def do_load(name):
                cf.read_text(encoding="utf-8") if cf.exists() else ""])
 
 
-def do_finish(state, *names, progress=gr.Progress()):
+def do_finish(state, with_comic, *names, progress=gr.Progress()):
     if not state:
         raise gr.Error("Bitte zuerst analysieren oder eine Session laden.")
     mapping = {}
     for v, n in zip(state["stimmen"], names):
         mapping[v["id"]] = n or C.UNBEKANNT
     text = P.build_transcript(state, mapping)
+    pr = lambda f, m: progress(f, desc=m)
+    comic = ""
     try:
-        summ = S.summarize(state, progress=lambda f, m: progress(f, desc=m))
+        with L.KI(pr) as url:          # startet die KI bei Bedarf und beendet sie danach
+            summ = S.summarize(state, url, progress=pr)
+            if with_comic:
+                comic = S.comic(state, url, progress=pr)
     except Exception as e:
         return (state, text, f"⚠️ Die Abschrift ist fertig, aber die Zusammenfassung ging schief:\n\n"
-                f"`{e}`\n\nLäuft Strata? Dann einfach nochmal auf Schritt 2 klicken.")
-    return state, text, summ
+                f"`{e}`\n\nDu kannst einfach nochmal auf Schritt 2 klicken – die Analyse muss nicht "
+                "wiederholt werden.", "")
+    return state, text, summ, comic
 
 
 def do_comic(state, progress=gr.Progress()):
     if not state:
         raise gr.Error("Keine Session geladen.")
+    pr = lambda f, m: progress(f, desc=m)
     try:
-        return S.comic(state, progress=lambda f, m: progress(f, desc=m))
+        with L.KI(pr) as url:
+            return S.comic(state, url, progress=pr)
     except Exception as e:
         raise gr.Error(str(e))
 
@@ -197,20 +206,44 @@ def save_image(i, path):
     return f"Bild von {lab} gespeichert."
 
 
-def save_settings(url, model, wm, ordner, schwelle, design, upd_start):
+def save_settings(url, model, wm, ordner, schwelle, design, upd_start,
+                  ki_mode, strata_cmd, strata_stop, strata_wait):
     st = C.settings()
+    st.update({"ki_modus": ki_mode, "strata_befehl": strata_cmd.strip(),
+               "strata_beenden": bool(strata_stop), "strata_wartezeit": int(strata_wait) * 60})
     st.update({"llm_url": url.strip(), "llm_model": model.strip(), "whisper_model": wm,
                "aufnahme_ordner": ordner.strip(), "match_schwelle": float(schwelle),
                "design": design, "update_beim_start": bool(upd_start)})
     C.save("einstellungen", st)
-    return "Gespeichert."
+    return "Gespeichert.", ki_status()
 
 
-def test_llm():
+def test_llm(progress=gr.Progress()):
     try:
-        return "✅ " + S.test_connection()
+        ans = L.test(lambda f, m: progress(f, desc=m))
+        return f"✅ {ans}\n\nDie KI wurde danach wieder beendet (falls das Tool sie gestartet hat)."
     except Exception as e:
-        return f"❌ Keine Verbindung: `{e}`"
+        return f"❌ {e}"
+
+
+def ki_status():
+    st = C.settings()
+    mode = st.get("ki_modus")
+    if mode == "Strata":
+        return L.strata_description()
+    if mode == "Eingebaute KI":
+        return ("✅ Eingebaute KI ist installiert." if L.builtin_installed() else
+                "Die eingebaute KI wird beim ersten Bedarf automatisch geladen (ca. 9 GB) – "
+                "oder jetzt mit dem Knopf unten.")
+    return f"Es wird die KI unter `{st['llm_url']}` genutzt. Sie muss selbst gestartet sein."
+
+
+def do_install_builtin(progress=gr.Progress()):
+    try:
+        L.install_builtin(lambda f, m: progress(f, desc=m))
+    except Exception as e:
+        raise gr.Error(f"Installation fehlgeschlagen: {e}")
+    return ki_status()
 
 
 def delete_voice(name):
@@ -386,6 +419,7 @@ def build():
                         dd = gr.Dropdown(choices=name_choices(), label="Das ist …",
                                          allow_custom_value=True)
                     rows.append((r, md, au, dd))
+                with_comic = gr.Checkbox(label="Comic-Vorlage gleich mit erstellen", value=True)
                 finish = gr.Button("2 · Abschrift & Zusammenfassung erstellen", variant="primary")
 
             summary = gr.Markdown()
@@ -433,9 +467,28 @@ def build():
             img_status = gr.Markdown()
 
           with gr.Tab("⚙️ Einstellungen", id="einstellungen"):
-            url = gr.Textbox(label="Adresse des Sprachmodells", value=st["llm_url"],
-                             info="Strata: http://127.0.0.1:8080/v1")
-            model = gr.Textbox(label="Modellname (leer = automatisch)", value=st["llm_model"])
+            gr.Markdown("### 🧠 Lokale KI (für Zusammenfassung & Comic)")
+            ki_mode = gr.Radio(L.MODI, value=st.get("ki_modus", "Strata"), label="Welche KI?",
+                               info="Strata: wird bei Bedarf gestartet und danach wieder beendet. "
+                                    "Eingebaute KI: wird bei Bedarf installiert und gestartet.")
+            ki_md = gr.Markdown(ki_status())
+            with gr.Accordion("Strata-Einstellungen", open=False):
+                strata_cmd = gr.Textbox(label="Strata-Startbefehl oder Pfad (leer = automatisch suchen)",
+                                        value=st.get("strata_befehl", ""),
+                                        placeholder=r"z. B. C:\Users\Tim\AppData\Local\Programs\Strata\Strata.exe  oder  strata launch")
+                strata_stop = gr.Checkbox(value=st.get("strata_beenden", True),
+                                          label="Strata nach der Zusammenfassung wieder beenden (gibt die Grafikkarte frei)")
+                strata_wait = gr.Slider(2, 30, value=int(st.get("strata_wartezeit", 900)) // 60, step=1,
+                                        label="So lange auf Strata warten (Minuten)")
+            with gr.Accordion("Eingebaute KI", open=False):
+                gr.Markdown("Läuft über die Grafikkarte (llama.cpp mit Vulkan) mit dem Modell Qwen3-14B. "
+                            "Einmalig ca. 9 GB Download.")
+                inst_ki = gr.Button("Eingebaute KI jetzt installieren")
+            with gr.Accordion("Eigene Adresse / Experten", open=False):
+                url = gr.Textbox(label="Adresse der KI", value=st["llm_url"],
+                                 info="Strata: http://127.0.0.1:8080/v1")
+                model = gr.Textbox(label="Modellname (leer = automatisch)", value=st["llm_model"])
+            gr.Markdown("### Weitere Einstellungen")
             wm = gr.Dropdown(["large-v3-turbo", "large-v3", "medium", "small"],
                              value=st["whisper_model"], label="Spracherkennung",
                              info="large-v3-turbo: schnell und gut. large-v3: etwas genauer, deutlich langsamer.")
@@ -448,7 +501,7 @@ def build():
                                  label="Wie sicher muss die Stimmerkennung sein?")
             with gr.Row():
                 save_s = gr.Button("Speichern", variant="primary")
-                test = gr.Button("Verbindung zum Sprachmodell testen")
+                test = gr.Button("KI testen (starten → fragen → beenden)")
             s_status = gr.Markdown()
             gr.Markdown("### Gespeicherte Stimmen")
             with gr.Row():
@@ -496,7 +549,7 @@ def build():
         load_btn.click(do_load, alte, [status, state, voice_box] + voice_outs
                        + [summary, transcript, comic_md])
         alte.focus(lambda: gr.update(choices=P.list_sessions()), None, alte)
-        finish.click(do_finish, [state] + [r[3] for r in rows], [state, transcript, summary])
+        finish.click(do_finish, [state, with_comic] + [r[3] for r in rows], [state, transcript, summary, comic_md])
         comic_btn.click(do_comic, state, comic_md)
         folder_btn.click(open_folder, state, folder_md)
         save_g.click(save_group, [ich_name, ich_rolle, dm_dd, table, kontext],
@@ -504,7 +557,11 @@ def build():
         for i, slot in enumerate(img_slots):
             slot.upload(lambda p, i=i: save_image(i, p), slot, img_status)
             slot.clear(lambda i=i: save_image(i, None), None, img_status)
-        save_s.click(save_settings, [url, model, wm, ordner, schwelle, design, upd_start], s_status)
+        save_s.click(save_settings, [url, model, wm, ordner, schwelle, design, upd_start,
+                                    ki_mode, strata_cmd, strata_stop, strata_wait], [s_status, ki_md])
+        ki_mode.change(lambda m: (C.save("einstellungen", {**C.settings(), "ki_modus": m}), ki_status())[1],
+                       ki_mode, ki_md)
+        inst_ki.click(do_install_builtin, None, ki_md)
         test.click(test_llm, None, s_status)
         vdel.click(delete_voice, vlist, [vlist, v_status])
         vlist.focus(lambda: gr.update(choices=list(C.voices())), None, vlist)
