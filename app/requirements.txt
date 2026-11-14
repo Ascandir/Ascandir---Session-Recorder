@@ -1,0 +1,10 @@
+faster-whisper==1.2.1
+sherpa-onnx==2.0.1
+gradio==6.32.0
+openai>=1.40
+soundfile>=0.12
+numpy>=1.26
+imageio-ffmpeg>=0.5
+sounddevice>=0.5
+psutil>=6.0
+proc-tap==1.1.1; sys_platform == "win32"

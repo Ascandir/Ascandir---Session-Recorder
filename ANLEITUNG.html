@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Ascandir SessionRecorder – Anleitung</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: "Segoe UI", system-ui, sans-serif; max-width: 820px; margin: 2rem auto; padding: 0 1.2rem; line-height: 1.6; color: #e9e1d6; background: #15110e; }
+  h1 { color: #f2a93b; margin-bottom: .2rem; }
+  h2 { color: #f2a93b; border-bottom: 2px solid #3a3027; padding-bottom: .3rem; margin-top: 2.4rem; }
+  h3 { margin-bottom: .3rem; color: #f5d7a8; }
+  .sub { color: #a8998a; margin-top: 0; }
+  ol li, ul li { margin: .35rem 0; }
+  code { background: #2a231d; padding: .1rem .35rem; border-radius: 4px; font-family: Consolas, monospace; font-size: .95em; }
+  .box { background: #211b16; border: 1px solid #3a3027; border-left: 5px solid #d68a1e; border-radius: 6px; padding: .8rem 1.1rem; margin: 1rem 0; }
+  .warn { border-left-color: #c2553f; }
+  table { border-collapse: collapse; width: 100%; margin: .8rem 0; background: #211b16; }
+  td, th { border: 1px solid #3a3027; padding: .45rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #2a231d; }
+  b { color: #fff3e0; }
+</style>
+</head>
+<body>
+<h1>🎲 Ascandir · SessionRecorder</h1>
+<p class="sub">Nimmt eure Discord-Session auf, erkennt wer spricht, schreibt alles ab und macht daraus eine Chronik – und auf Wunsch eine Comic-Vorlage. Alles bleibt auf deinem PC.</p>
+
+<h2>Installieren (einmalig)</h2>
+<ol>
+  <li>Doppelklick auf <code>Ascandir-SessionRecorder-Setup.exe</code>.<br>
+      Meldet Windows „Der Computer wurde durch Windows geschützt“: <b>Weitere Informationen → Trotzdem ausführen</b>. (Das kommt bei selbstgebauten Programmen ohne gekaufte Signatur.)</li>
+  <li>Dem Assistenten folgen – bei „Zielordner“ kannst du mit <b>Durchsuchen …</b> einen eigenen Ordner wählen (nicht unter „C:\Programme“). Das Setup richtet alles ein: Python, die Programmteile, ggf. die Microsoft-C++-Laufzeit und die KI-Modelle. Dauer ca. 5–15 Minuten.</li>
+  <li>Danach liegt <b>Ascandir - SessionRecorder</b> auf dem Desktop und im Startmenü.</li>
+</ol>
+<p>Nur beim Setup wird etwas heruntergeladen. Danach läuft alles offline. Deinstallieren geht über <b>Windows-Einstellungen → Apps</b>.</p>
+
+<h2>Beim ersten Start: Gruppe eintragen</h2>
+<p>Tab <b>👥 Gruppe</b>: dein Name, deine Rolle (z.&nbsp;B. DM) und alle Mitspieler mit Charakter. Unter „Kampagne &amp; wichtige Namen“ NPCs und Orte notieren – das hilft der Spracherkennung bei der Schreibweise. Wähl aus, <b>wer der Spielleiter (DM)</b> ist. Für den Comic kannst du das Aussehen eintragen und unten <b>Charakterbilder</b> hochladen. <b>Speichern</b>.</p>
+
+<h2>Am Spieleabend</h2>
+<ol>
+  <li>Discord (die App) starten und in den Voice-Channel gehen.</li>
+  <li><b>SessionRecorder</b> öffnen → Tab <b>🎙️ Aufnahme</b> → <b>Namen der Session</b> eingeben (so heißt später die Datei) → Mikro prüfen → <b>⏺ Aufnahme starten</b>.</li>
+  <li>Kurz schauen, ob sich die Balken bei Mikro und Discord bewegen, wenn jemand spricht.</li>
+  <li>Browser-Tab ruhig schließen und ganz normal mit Foundry, Webcam &amp; Co. spielen. Die Aufnahme läuft im Hintergrund weiter und braucht kaum Leistung.</li>
+  <li>Nach der Session: SessionRecorder wieder öffnen → <b>⏹ Aufnahme beenden</b>.</li>
+</ol>
+<div class="box">Aufgenommen wird <b>nur</b> dein Mikro und der Ton der Discord-App, auf zwei getrennten Spuren. Kein Bild, keine Kamera, keine Foundry-Musik, keine Spielgeräusche.</div>
+<div class="box"><b>Tipp:</b> Spiel mit <b>Headset</b>. Kommen die anderen aus Lautsprechern, hört dein Mikro sie mit, und ihre Sätze landen zusätzlich bei dir.</div>
+
+<h2>Session auswerten</h2>
+<ol>
+  <li><b>Strata starten</b> (für die Zusammenfassung).</li>
+  <li>Tab <b>📜 Session auswerten</b> – die neue Aufnahme und ihr Name sind schon eingetragen. Prüfen wie viele Leute außer dir dabei waren.</li>
+  <li><b>1 · Analysieren</b>. Jetzt arbeitet der PC: bei 3 Stunden grob 20–60 Minuten.</li>
+  <li><b>Wer ist wer?</b> In jede Stimme reinhören und den Spieler wählen. Ab der zweiten Session erkennt das Tool die Stimmen meist selbst – dann nur kurz prüfen.</li>
+  <li><b>2 · Abschrift &amp; Zusammenfassung erstellen</b>. Danach siehst du die Chronik.</li>
+  <li>Optional: <b>🖼️ Comic-Vorlage erstellen</b> – Panels mit Szenen, Sprechblasen und englischen Bild-Prompts für einen Bildgenerator.</li>
+</ol>
+<p>Zum Schließen oben rechts auf <b>⏻ Beenden</b> klicken.</p>
+
+<h2>Updates</h2>
+<p>Oben rechts auf <b>⬆️ Updates</b> klicken. Gibt es eine neue Version, siehst du, was sich geändert hat, und installierst sie mit <b>Jetzt aktualisieren</b> – das Tool schließt sich, aktualisiert sich und startet neu. Gruppe, Bilder, Aufnahmen und Chroniken bleiben erhalten. Beim Start schaut das Tool auch von selbst nach (abschaltbar unter Einstellungen); dabei wird nur die Versionsnummer bei GitHub abgefragt.</p>
+
+<h3>Wo liegt was?</h3>
+<p>Alles liegt in deinem Installationsordner (Standard: <code>%LOCALAPPDATA%\Ascandir-SessionRecorder</code>) (Knopf <b>📂 Ordner öffnen</b> bringt dich zur Session):</p>
+<table>
+  <tr><td><code>Aufnahmen\</code></td><td>die Tonaufnahmen (<code>.mka</code>, zwei Spuren). Nach dem Auswerten kannst du sie löschen.</td></tr>
+  <tr><td><code>Sessions\…\zusammenfassung.md</code></td><td>die Chronik</td></tr>
+  <tr><td><code>Sessions\…\transkript.txt</code></td><td>die komplette Abschrift mit Zeit und Sprecher</td></tr>
+  <tr><td><code>Sessions\…\comic_vorlage.md</code></td><td>die Comic-Panels (falls erstellt)</td></tr>
+</table>
+
+<h2>Wenn etwas hakt</h2>
+<table>
+  <tr><th>Problem</th><th>Lösung</th></tr>
+  <tr><td>„Discord läuft nicht“</td><td>Die Discord-<b>App</b> starten (Discord im Browser wird nicht erkannt). Startet Discord während der Aufnahme neu, verbindet sich das Tool von selbst wieder.</td></tr>
+  <tr><td>Discord-Balken bewegt sich nicht</td><td>Kurz prüfen, ob du die anderen hörst. Manche Windows-Versionen vor 2020 unterstützen die Programm-Aufnahme nicht – dann Windows aktualisieren.</td></tr>
+  <tr><td>„Keine Verbindung zum Sprachmodell“</td><td>Strata läuft nicht. Starten und nochmal auf Schritt 2 klicken – die Analyse muss nicht wiederholt werden. Im Tab <b>⚙️ Einstellungen</b> kannst du die Verbindung testen.</td></tr>
+  <tr><td>Sätze landen bei der falschen Person</td><td>Bei „Wer ist wer?“ prüfen. Sind zwei Leute zu einer Stimme verschmolzen: die richtige Anzahl eintragen und neu analysieren.</td></tr>
+  <tr><td>Abschrift klingt unsauber</td><td>Unter <b>⚙️ Einstellungen → Spracherkennung</b> <code>large-v3</code> wählen (genauer, aber langsamer; lädt beim ersten Mal nochmal ca. 3&nbsp;GB).</td></tr>
+  <tr><td>Tool öffnet sich nicht</td><td>In <code>daten\log.txt</code> im Installationsordner steht, was schiefging – die Datei an Claude schicken.</td></tr>
+</table>
+
+<div class="box warn"><b>Wichtig:</b> Sag deiner Runde vor der Aufnahme Bescheid. Gespräche ohne Zustimmung aufzunehmen ist in Deutschland strafbar (§ 201 StGB). Den Comic darfst du natürlich trotzdem als Überraschung behalten.</div>
+</body>
+</html>
