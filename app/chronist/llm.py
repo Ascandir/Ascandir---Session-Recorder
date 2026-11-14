@@ -41,6 +41,14 @@ def api_up(url, timeout=3):
         return False
 
 
+def _log_tail(n=12):
+    try:
+        lines = LOG.read_text(encoding="utf-8", errors="replace").splitlines()
+        return "\n".join(lines[-n:])
+    except Exception:
+        return ""
+
+
 def _port(url):
     try:
         return int(url.split("://", 1)[1].split("/", 1)[0].rsplit(":", 1)[1])
@@ -81,8 +89,88 @@ def _listener_pids(port):
 
 
 # ---------- Strata finden ----------
-def find_strata():
+def _from_registry():
+    """Installierte Programme (Windows-Programmliste) nach Strata durchsuchen."""
+    if not WIN:
+        return None
+    import winreg
+    roots = [(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Uninstall"),
+             (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Uninstall"),
+             (winreg.HKEY_LOCAL_MACHINE, r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall")]
+    for root, path in roots:
+        try:
+            key = winreg.OpenKey(root, path)
+        except OSError:
+            continue
+        for i in range(winreg.QueryInfoKey(key)[0]):
+            try:
+                sub = winreg.OpenKey(key, winreg.EnumKey(key, i))
+                name = str(winreg.QueryValueEx(sub, "DisplayName")[0])
+            except OSError:
+                continue
+            if "strata" not in name.lower():
+                continue
+            cands = []
+            for val in ("DisplayIcon", "InstallLocation"):
+                try:
+                    cands.append(str(winreg.QueryValueEx(sub, val)[0]).split(",")[0].strip('"'))
+                except OSError:
+                    pass
+            for c in cands:
+                pth = Path(c)
+                if pth.is_file() and pth.suffix.lower() == ".exe" and "unins" not in pth.name.lower():
+                    return ("app", str(pth))
+                if pth.is_dir():
+                    for exe in list(pth.glob("Strata*.exe")) + list(pth.glob("strata*.exe")):
+                        if "unins" not in exe.name.lower():
+                            return ("app", str(exe))
+    return None
+
+
+def _from_shortcuts():
+    """Startmenü- und Desktop-Verknüpfungen namens 'Strata' auflösen."""
+    if not WIN:
+        return None
+    dirs = [Path(os.environ.get("APPDATA", ""), "Microsoft", "Windows", "Start Menu", "Programs"),
+            Path(os.environ.get("ProgramData", r"C:\ProgramData"), "Microsoft", "Windows", "Start Menu", "Programs"),
+            Path.home() / "Desktop", Path.home() / "OneDrive" / "Desktop"]
+    links = []
+    for d in dirs:
+        if d.exists():
+            links += [p for p in d.rglob("*.lnk") if "strata" in p.stem.lower()]
+    for lnk in links:
+        try:
+            ps = f"(New-Object -ComObject WScript.Shell).CreateShortcut('{str(lnk).replace(chr(39), chr(39)*2)}').TargetPath"
+            out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True,
+                                 text=True, timeout=10, creationflags=NOWIN).stdout.strip()
+            if out and Path(out).exists():
+                kind = "bat" if out.lower().endswith((".bat", ".cmd")) else "app"
+                return (kind, out)
+        except Exception:
+            pass
+    return None
+
+
+_found_cache = {}
+
+
+def find_strata(force=False):
     """Gibt (art, pfad) zurück: art = 'app' | 'cli' | 'bat' – oder None."""
+    if _found_cache and not force:
+        return _found_cache.get("r")
+    r = _find_strata()
+    _found_cache["r"] = r
+    return r
+
+
+def _find_strata():
+    for f in (_from_registry, _from_shortcuts):
+        try:
+            r = f()
+            if r:
+                return r
+        except Exception:
+            pass
     exe = shutil.which("strata")
     if exe:
         return ("cli", exe)
@@ -257,12 +345,13 @@ class KI:
                 return
             if self.proc is not None and self.proc.poll() is not None and self.proc.returncode not in (0, None) \
                     and time.time() - t0 > 10 and not api_up(url):
-                raise RuntimeError(f"{what} hat sich beendet, bevor sie bereit war. Details: {LOG}")
+                raise RuntimeError(f"{what} hat sich beendet, bevor sie bereit war.\n\nLetzte Meldungen:\n{_log_tail()}")
             sec = int(time.time() - t0)
             self.progress(min(0.95, sec / timeout), f"{what} startet … ({sec // 60}:{sec % 60:02d}) – "
                                                     "beim ersten Laden kann das ein paar Minuten dauern")
             time.sleep(3)
-        raise RuntimeError(f"{what} hat nach {timeout // 60} Minuten nicht geantwortet. Details: {LOG}")
+        raise RuntimeError(f"{what} hat nach {timeout // 60} Minuten nicht unter {url} geantwortet.\n\n"
+                           f"Letzte Meldungen:\n{_log_tail()}")
 
     def __enter__(self):
         st = C.settings()

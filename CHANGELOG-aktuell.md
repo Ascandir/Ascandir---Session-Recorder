@@ -1,4 +1,4 @@
-- **Aufnahme repariert:** keine Lücken/Knackser mehr (Fehler beim zeitlichen Ausgleich der Spuren behoben), Discord-Ton geht nicht mehr verloren, bessere Mikro-Anbindung (WASAPI)
-- Leise Stimmen werden vor der Spracherkennung angeglichen – die Abschrift wird deutlich besser
-- Zusätzlich eine normale **.mp3 zum Anhören** neben jeder Aufnahme
-- **Eigenes Programmfenster** statt Browser – Schließen beendet alles (auch Python und die KI); laufende Aufnahmen werden vorher gespeichert
+- „Wer ist wer?“: alle Gruppenmitglieder stehen jetzt als Knöpfe direkt zur Auswahl (statt Ausklappliste)
+- Strata wird besser gefunden (Windows-Programmliste und Startmenü-Verknüpfungen)
+- Neu unter ⚙️ → Lokale KI → Strata-Einstellungen: „📂 Strata.exe auswählen …“ und „🔍 Strata neu suchen“
+- Startet Strata nicht, zeigt das Tool jetzt die letzten Meldungen direkt an

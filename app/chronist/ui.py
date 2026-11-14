@@ -66,7 +66,7 @@ def _voice_updates(state):
             ups += [gr.update(visible=True),
                     gr.update(value=f"**Stimme {v['nr']}** · {min_:.1f} Min. gesprochen · {erkannt}"),
                     gr.update(value=v["clip"]),
-                    gr.update(choices=name_choices(), value=val)]
+                    gr.update(choices=name_choices(), value=val if val in name_choices() else None)]
         else:
             ups += [gr.update(visible=False), gr.update(), gr.update(value=None), gr.update(value=None)]
     return ups
@@ -255,6 +255,24 @@ def _ki_status(mode, st):
                 "Die eingebaute KI wird beim ersten Bedarf automatisch geladen (ca. 9 GB) – "
                 "oder jetzt mit dem Knopf unten.")
     return f"Es wird die KI unter `{st['llm_url']}` genutzt. Sie muss selbst gestartet sein."
+
+
+def pick_strata():
+    if WINDOW is None:
+        raise gr.Error("Die Dateiauswahl gibt es nur im Programmfenster – trag den Pfad bitte ins Feld ein.")
+    import webview
+    res = WINDOW.create_file_dialog(webview.FileDialog.OPEN if hasattr(webview, "FileDialog") else webview.OPEN_DIALOG,
+                                    file_types=("Programme (*.exe;*.bat;*.cmd)", "Alle Dateien (*.*)"))
+    if not res:
+        return gr.update(), ki_status()
+    path = res[0] if isinstance(res, (list, tuple)) else res
+    st = C.settings(); st["strata_befehl"] = path; C.save("einstellungen", st)
+    return gr.update(value=path), ki_status()
+
+
+def do_find_strata():
+    L.find_strata(force=True)
+    return ki_status()
 
 
 def do_install_builtin(progress=gr.Progress()):
@@ -479,14 +497,15 @@ def build():
             with gr.Column(visible=False) as voice_box:
                 gr.Markdown("### Wer ist wer?\nEinmal zuordnen – danach erkennt das Tool die Stimmen "
                             "selbst wieder. Musik-Bots o. Ä. auf *(ignorieren)* stellen. Bei bekannten "
-                            "Stimmen kannst du die Auswahl korrigieren.")
+                            "Stimmen kannst du die Auswahl korrigieren. Fehlt jemand? Im Tab **Gruppe** "
+                            "eintragen und speichern – dann erscheint er hier.")
                 rows = []
                 for i in range(MAX_STIMMEN):
-                    with gr.Row(visible=False) as r:
-                        md = gr.Markdown()
-                        au = gr.Audio(type="filepath", interactive=False, show_label=False)
-                        dd = gr.Dropdown(choices=name_choices(), label="Das ist …",
-                                         allow_custom_value=True)
+                    with gr.Group(visible=False) as r:
+                        with gr.Row():
+                            md = gr.Markdown()
+                            au = gr.Audio(type="filepath", interactive=False, show_label=False)
+                        dd = gr.Radio(choices=name_choices(), label="Das ist …")
                     rows.append((r, md, au, dd))
                 finish = gr.Button("Weiter ▶", variant="primary", size="lg")
 
@@ -544,6 +563,9 @@ def build():
                 strata_cmd = gr.Textbox(label="Strata-Startbefehl oder Pfad (leer = automatisch suchen)",
                                         value=st.get("strata_befehl", ""),
                                         placeholder=r"z. B. C:\Users\Tim\AppData\Local\Programs\Strata\Strata.exe  oder  strata launch")
+                with gr.Row():
+                    strata_pick = gr.Button("📂 Strata.exe auswählen …")
+                    strata_find = gr.Button("🔍 Strata neu suchen")
                 strata_stop = gr.Checkbox(value=st.get("strata_beenden", True),
                                           label="Strata nach der Zusammenfassung wieder beenden (gibt die Grafikkarte frei)")
                 strata_wait = gr.Slider(2, 30, value=int(st.get("strata_wartezeit", 900)) // 60, step=1,
@@ -622,7 +644,9 @@ def build():
         comic_btn.click(do_comic, state, comic_md)
         folder_btn.click(open_folder, state, folder_md)
         save_g.click(save_group, [ich_name, ich_rolle, dm_dd, table, kontext],
-                     [g_status, n_andere, dm_dd] + img_slots)
+                     [g_status, n_andere, dm_dd] + img_slots).then(
+            lambda *vals: [gr.update(choices=name_choices(), value=v if v in name_choices() else None)
+                           for v in vals], [r[3] for r in rows], [r[3] for r in rows])
         for i, slot in enumerate(img_slots):
             slot.upload(lambda p, i=i: save_image(i, p), slot, img_status)
             slot.clear(lambda i=i: save_image(i, None), None, img_status)
@@ -631,6 +655,8 @@ def build():
         ki_mode.change(lambda m: (C.save("einstellungen", {**C.settings(), "ki_modus": m}), ki_status())[1],
                        ki_mode, ki_md)
         inst_ki.click(do_install_builtin, None, ki_md)
+        strata_pick.click(pick_strata, None, [strata_cmd, ki_md])
+        strata_find.click(do_find_strata, None, ki_md)
         test.click(test_llm, None, s_status)
         vdel.click(delete_voice, vlist, [vlist, v_status])
         vlist.focus(lambda: gr.update(choices=list(C.voices())), None, vlist)
