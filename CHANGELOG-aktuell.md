@@ -1,4 +1,3 @@
-- **Lokale KI startet und stoppt automatisch:** Für die Zusammenfassung startet das Tool dein Strata selbst und beendet es danach wieder (Grafikkarte wird frei). Lief Strata schon vorher, bleibt es an.
-- **Eingebaute KI** für PCs ohne Strata: wird bei Bedarf automatisch installiert (Qwen3-14B, ca. 9 GB) und nur bei Bedarf gestartet.
-- Neue Einstellungen unter ⚙️ → Lokale KI, inkl. „KI testen“ (starten → fragen → beenden)
-- Comic-Vorlage kann direkt in Schritt 2 mit erstellt werden
+- **Ein Klick:** „▶ Analysieren“ macht jetzt alles – Abschrift, Stimmen erkennen, KI starten, Chronik + Comic-Vorlage, KI beenden.
+- Nur bei neuen Stimmen hält das Tool kurz an („Wer ist wer?“ → Weiter).
+- KI-Wahl **Automatisch** (Standard): Strata, wenn vorhanden – sonst die eingebaute KI.

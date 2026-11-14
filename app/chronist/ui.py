@@ -72,19 +72,25 @@ def _voice_updates(state):
 
 
 # ---------- Aktionen ----------
-def do_analyse(rec, title, n_andere, vertauscht, progress=gr.Progress()):
+def do_analyse(rec, title, n_andere, vertauscht, with_comic, progress=gr.Progress()):
+    """Ein Klick: Abschrift → Stimmen → (nur bei Unbekannten anhalten) → KI an → Chronik → KI aus."""
     if not rec:
         raise gr.Error("Bitte zuerst eine Aufnahme auswählen.")
     try:
         state = P.analyse(rec, title, n_andere, vertauscht,
-                          progress=lambda f, m: progress(f, desc=m))
+                          progress=lambda f, m: progress(f * 0.6, desc=m))
     except Exception as e:
         raise gr.Error(str(e))
     unbekannt = sum(1 for v in state["stimmen"] if not v["vorschlag"])
-    msg = (f"✅ Analyse fertig: {len(state['stimmen'])} Stimmen auf der Discord-Spur gefunden. "
-           + (f"**{unbekannt} davon kenne ich noch nicht** – hör kurz rein und wähl den Namen."
-              if unbekannt else "Alle Stimmen wiedererkannt – prüf kurz und klick auf Schritt 2."))
-    return [msg, state, gr.update(visible=True)] + _voice_updates(state)
+    if unbekannt:
+        msg = (f"⏸️ Fast geschafft – **{unbekannt} Stimme(n) kenne ich noch nicht.** Hör kurz rein, "
+               "wähl den Namen und klick auf **Weiter**. Ab dem nächsten Mal erkenne ich sie von selbst.")
+        return [msg, state, gr.update(visible=True)] + _voice_updates(state) + [gr.update(), gr.update(), gr.update()]
+    names = [v["vorschlag"] for v in state["stimmen"]]
+    state, text, summ, comic = _finish(state, with_comic, names, lambda f, m: progress(0.6 + f * 0.4, desc=m))
+    msg = ("✅ Fertig! Alle Stimmen wiedererkannt – hier ist eure Chronik." if not summ.startswith("⚠️")
+           else "⚠️ Abschrift fertig, aber die KI hatte ein Problem – Details unten.")
+    return [msg, state, gr.update(visible=False)] + _voice_updates(state) + [text, summ, comic]
 
 
 def do_load(name):
@@ -105,11 +111,18 @@ def do_load(name):
 def do_finish(state, with_comic, *names, progress=gr.Progress()):
     if not state:
         raise gr.Error("Bitte zuerst analysieren oder eine Session laden.")
+    state, text, summ, comic = _finish(state, with_comic, names, lambda f, m: progress(f, desc=m))
+    ok = not summ.startswith("⚠️")
+    return (state, text, summ, comic,
+            "✅ Fertig! Hier ist eure Chronik." if ok else "⚠️ Die KI hatte ein Problem – Details unten.",
+            gr.update(visible=not ok))
+
+
+def _finish(state, with_comic, names, pr):
     mapping = {}
     for v, n in zip(state["stimmen"], names):
         mapping[v["id"]] = n or C.UNBEKANNT
     text = P.build_transcript(state, mapping)
-    pr = lambda f, m: progress(f, desc=m)
     comic = ""
     try:
         with L.KI(pr) as url:          # startet die KI bei Bedarf und beendet sie danach
@@ -118,8 +131,8 @@ def do_finish(state, with_comic, *names, progress=gr.Progress()):
                 comic = S.comic(state, url, progress=pr)
     except Exception as e:
         return (state, text, f"⚠️ Die Abschrift ist fertig, aber die Zusammenfassung ging schief:\n\n"
-                f"`{e}`\n\nDu kannst einfach nochmal auf Schritt 2 klicken – die Analyse muss nicht "
-                "wiederholt werden.", "")
+                f"`{e}`\n\nÖffne die Session unter „Erweitert → Gespeicherte Session öffnen“ und klick "
+                "auf **Weiter** – die Abschrift muss nicht wiederholt werden.", "")
     return state, text, summ, comic
 
 
@@ -228,7 +241,12 @@ def test_llm(progress=gr.Progress()):
 
 def ki_status():
     st = C.settings()
-    mode = st.get("ki_modus")
+    mode = L.resolved_mode()
+    pre = f"**Automatisch gewählt: {mode}.** " if st.get("ki_modus", "Automatisch") == "Automatisch" else ""
+    return pre + _ki_status(mode, st)
+
+
+def _ki_status(mode, st):
     if mode == "Strata":
         return L.strata_description()
     if mode == "Eingebaute KI":
@@ -405,12 +423,16 @@ def build():
                 with gr.Row():
                     alte = gr.Dropdown(choices=P.list_sessions(), label="Gespeicherte Session öffnen")
                     load_btn = gr.Button("Öffnen", scale=0)
-            go = gr.Button("1 · Analysieren", variant="primary")
+            with_comic = gr.Checkbox(label="Comic-Vorlage mit erstellen", value=True)
+            go = gr.Button("▶ Analysieren", variant="primary", size="lg")
+            gr.Markdown("Macht alles in einem Rutsch: Abschrift, Stimmen erkennen, KI starten, Chronik "
+                        "schreiben, KI wieder beenden. Bei 3 Stunden Aufnahme grob 30–75 Minuten.")
             status = gr.Markdown()
 
             with gr.Column(visible=False) as voice_box:
                 gr.Markdown("### Wer ist wer?\nEinmal zuordnen – danach erkennt das Tool die Stimmen "
-                            "selbst wieder. Musik-Bots o. Ä. auf *(ignorieren)* stellen.")
+                            "selbst wieder. Musik-Bots o. Ä. auf *(ignorieren)* stellen. Bei bekannten "
+                            "Stimmen kannst du die Auswahl korrigieren.")
                 rows = []
                 for i in range(MAX_STIMMEN):
                     with gr.Row(visible=False) as r:
@@ -419,8 +441,7 @@ def build():
                         dd = gr.Dropdown(choices=name_choices(), label="Das ist …",
                                          allow_custom_value=True)
                     rows.append((r, md, au, dd))
-                with_comic = gr.Checkbox(label="Comic-Vorlage gleich mit erstellen", value=True)
-                finish = gr.Button("2 · Abschrift & Zusammenfassung erstellen", variant="primary")
+                finish = gr.Button("Weiter ▶", variant="primary", size="lg")
 
             summary = gr.Markdown()
             with gr.Accordion("Abschrift", open=False):
@@ -468,9 +489,9 @@ def build():
 
           with gr.Tab("⚙️ Einstellungen", id="einstellungen"):
             gr.Markdown("### 🧠 Lokale KI (für Zusammenfassung & Comic)")
-            ki_mode = gr.Radio(L.MODI, value=st.get("ki_modus", "Strata"), label="Welche KI?",
-                               info="Strata: wird bei Bedarf gestartet und danach wieder beendet. "
-                                    "Eingebaute KI: wird bei Bedarf installiert und gestartet.")
+            ki_mode = gr.Radio(L.MODI, value=st.get("ki_modus", "Automatisch"), label="Welche KI?",
+                               info="Automatisch (empfohlen): nimmt Strata, wenn es da ist – sonst die eingebaute KI. "
+                                    "Beide werden nur für die Auswertung gestartet und danach wieder beendet.")
             ki_md = gr.Markdown(ki_status())
             with gr.Accordion("Strata-Einstellungen", open=False):
                 strata_cmd = gr.Textbox(label="Strata-Startbefehl oder Pfad (leer = automatisch suchen)",
@@ -544,12 +565,13 @@ def build():
                                  rec_start, rec_stop, timer, sess_name] + img_slots)
         voice_outs = [x for r in rows for x in r]
         refresh.click(lambda: gr.update(choices=recordings()), None, rec)
-        go.click(do_analyse, [rec, title, n_andere, vertauscht],
-                 [status, state, voice_box] + voice_outs)
+        go.click(do_analyse, [rec, title, n_andere, vertauscht, with_comic],
+                 [status, state, voice_box] + voice_outs + [transcript, summary, comic_md])
         load_btn.click(do_load, alte, [status, state, voice_box] + voice_outs
                        + [summary, transcript, comic_md])
         alte.focus(lambda: gr.update(choices=P.list_sessions()), None, alte)
-        finish.click(do_finish, [state, with_comic] + [r[3] for r in rows], [state, transcript, summary, comic_md])
+        finish.click(do_finish, [state, with_comic] + [r[3] for r in rows],
+                     [state, transcript, summary, comic_md, status, voice_box])
         comic_btn.click(do_comic, state, comic_md)
         folder_btn.click(open_folder, state, folder_md)
         save_g.click(save_group, [ich_name, ich_rolle, dm_dd, table, kontext],

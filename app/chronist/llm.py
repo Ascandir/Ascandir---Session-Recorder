@@ -27,7 +27,7 @@ MODEL_NAME = "Qwen3-14B-Q4_K_M.gguf"
 MODEL_URL = f"https://huggingface.co/Qwen/Qwen3-14B-GGUF/resolve/main/{MODEL_NAME}"
 LLAMA_RELEASE_API = "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest"
 
-MODI = ["Strata", "Eingebaute KI", "Eigene Adresse"]
+MODI = ["Automatisch", "Strata", "Eingebaute KI", "Eigene Adresse"]
 LOG = C.DATA / "ki-log.txt"
 
 
@@ -176,6 +176,17 @@ def install_builtin(progress=lambda f, m: None):
     progress(1.0, "Eingebaute KI ist installiert.")
 
 
+def resolved_mode():
+    """'Automatisch' → Strata, wenn vorhanden (oder schon laufend), sonst die eingebaute KI."""
+    st = C.settings()
+    m = st.get("ki_modus") or "Automatisch"
+    if m != "Automatisch":
+        return m
+    if st.get("strata_befehl", "").strip() or find_strata() or api_up(st["llm_url"], timeout=1):
+        return "Strata"
+    return "Eingebaute KI"
+
+
 # ---------- Start / Stopp ----------
 class KI:
     """Kontextmanager: stellt eine laufende KI bereit und räumt danach auf."""
@@ -185,7 +196,7 @@ class KI:
         self.proc = None
         self.started = False
         self.url = None
-        self.mode = C.settings().get("ki_modus", "Strata")
+        self.mode = resolved_mode()
 
     # -- Startbefehle
     def _strata_cmd(self):

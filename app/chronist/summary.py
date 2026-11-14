@@ -25,7 +25,8 @@ def _model(cl, st):
 
 
 def _chat(cl, model, prompt, max_tokens=2500):
-    if C.settings().get("ki_modus") == "Eingebaute KI":
+    from .llm import resolved_mode
+    if resolved_mode() == "Eingebaute KI":
         prompt = prompt + "\n\n/no_think"      # Qwen3: ohne langes Nachdenken antworten
     r = cl.chat.completions.create(
         model=model, temperature=0.4, max_tokens=max_tokens,
@@ -144,7 +145,7 @@ def summarize(state, url, progress=lambda f, m: None):
         raise RuntimeError("Die Abschrift ist leer.")
     cl = _client(url)
     progress(0.02, "Verbinde mit dem Sprachmodell ...")
-    model = _model(cl, st) if C.settings().get("ki_modus") != "Eingebaute KI" else "lokal"
+    model = _model(cl, st)
     g = _gruppe_text(grp)
     size = int(st["chunk_zeichen"])
     parts = _chunks(text, size)
