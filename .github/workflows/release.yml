@@ -1,0 +1,43 @@
+name: Release bauen
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: false
+
+      - name: go-winres installieren
+        run: go install github.com/tc-hib/go-winres@v0.3.3
+
+      - name: Version prüfen
+        run: |
+          V=$(cat app/VERSION)
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "v$V" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} passt nicht zu app/VERSION ($V)"; exit 1
+          fi
+          echo "VERSION=$V" >> "$GITHUB_ENV"
+
+      - name: Setup bauen
+        run: WINRES="$(go env GOPATH)/bin/go-winres" ./build.sh
+
+      - name: Release veröffentlichen
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: SessionRecorder ${{ env.VERSION }}
+          body_path: CHANGELOG-aktuell.md
+          files: Ascandir-SessionRecorder-Setup.exe
+          make_latest: true

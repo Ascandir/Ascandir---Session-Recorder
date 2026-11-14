@@ -1,0 +1,5 @@
+- Aufnahme mit Session-Namen – so heißt dann auch die Datei
+- Update-Knopf im Tool (⬆️ Updates oben rechts)
+- Charakterbilder in der Gruppe
+- Auswahl, wer der Spielleiter (DM) ist
+- Neuer Name: Ascandir · SessionRecorder
