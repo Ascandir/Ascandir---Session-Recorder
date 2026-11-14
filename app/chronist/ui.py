@@ -74,6 +74,42 @@ def _voice_updates(state):
 
 
 # ---------- Aktionen ----------
+BUSY = threading.Lock()
+
+
+def _busy_guard(fn):
+    """Verhindert, dass ein zweiter Klick unbemerkt hinter einem hängenden Durchlauf wartet."""
+    import functools
+
+    @functools.wraps(fn)
+    def wrap(*a, **k):
+        if not BUSY.acquire(blocking=False):
+            raise gr.Error("Es läuft schon eine Auswertung oder ein KI-Test. Warte kurz oder klick auf "
+                           "⏹ Abbrechen.")
+        try:
+            log.info("Start: %s", fn.__name__)
+            return fn(*a, **k)
+        finally:
+            BUSY.release()
+            log.info("Ende: %s", fn.__name__)
+    return wrap
+
+
+def do_cancel():
+    log.info("Abbrechen gedrückt")
+    try:
+        L.stop_all()
+    except Exception:
+        log.exception("Fehler beim Beenden der KI")
+    if BUSY.locked():
+        try:
+            BUSY.release()
+        except RuntimeError:
+            pass
+    return "⏹ Abgebrochen. Eine gestartete KI wurde beendet."
+
+
+@_busy_guard
 def do_analyse(rec, title, n_andere, vertauscht, with_comic, progress=gr.Progress()):
     """Ein Klick: Abschrift → Stimmen → (nur bei Unbekannten anhalten) → KI an → Chronik → KI aus."""
     if not rec:
@@ -111,6 +147,7 @@ def do_load(name):
                cf.read_text(encoding="utf-8") if cf.exists() else ""])
 
 
+@_busy_guard
 def do_finish(state, with_comic, *names, progress=gr.Progress()):
     if not state:
         raise gr.Error("Bitte zuerst analysieren oder eine Session laden.")
@@ -140,6 +177,7 @@ def _finish(state, with_comic, names, pr):
     return state, text, summ, comic
 
 
+@_busy_guard
 def do_comic(state, progress=gr.Progress()):
     if not state:
         raise gr.Error("Keine Session geladen.")
@@ -235,6 +273,7 @@ def save_settings(url, model, wm, ordner, schwelle, design, upd_start,
     return "Gespeichert.", ki_status()
 
 
+@_busy_guard
 def test_llm(progress=gr.Progress()):
     try:
         log.info("KI-Test gestartet")
@@ -509,7 +548,9 @@ def build():
                     alte = gr.Dropdown(choices=P.list_sessions(), label="Gespeicherte Session öffnen")
                     load_btn = gr.Button("Öffnen", scale=0)
             with_comic = gr.Checkbox(label="Comic-Vorlage mit erstellen", value=True)
-            go = gr.Button("▶ Analysieren", variant="primary", size="lg")
+            with gr.Row():
+                go = gr.Button("▶ Analysieren", variant="primary", size="lg", scale=5)
+                cancel_btn = gr.Button("⏹ Abbrechen", variant="stop", size="lg", scale=1)
             gr.Markdown("Macht alles in einem Rutsch: Abschrift, Stimmen erkennen, KI starten, Chronik "
                         "schreiben, KI wieder beenden. Bei 3 Stunden Aufnahme grob 30–75 Minuten.")
             status = gr.Markdown()
@@ -617,6 +658,7 @@ def build():
             with gr.Row():
                 save_s = gr.Button("Speichern", variant="primary")
                 test = gr.Button("KI testen (starten → fragen → beenden)")
+                test_stop = gr.Button("⏹ Test abbrechen", variant="stop")
             s_status = gr.Markdown()
             gr.Markdown("### Gespeicherte Stimmen")
             with gr.Row():
@@ -659,14 +701,17 @@ def build():
                                  rec_start, rec_stop, timer, sess_name] + img_slots)
         voice_outs = [x for r in rows for x in r]
         refresh.click(lambda: gr.update(choices=recordings()), None, rec)
-        go.click(do_analyse, [rec, title, n_andere, vertauscht, with_comic],
-                 [status, state, voice_box] + voice_outs + [transcript, summary, comic_md])
+        ev_go = go.click(do_analyse, [rec, title, n_andere, vertauscht, with_comic],
+                         [status, state, voice_box] + voice_outs + [transcript, summary, comic_md],
+                         concurrency_limit=None)
         load_btn.click(do_load, alte, [status, state, voice_box] + voice_outs
                        + [summary, transcript, comic_md])
         alte.focus(lambda: gr.update(choices=P.list_sessions()), None, alte)
-        finish.click(do_finish, [state, with_comic] + [r[3] for r in rows],
-                     [state, transcript, summary, comic_md, status, voice_box])
-        comic_btn.click(do_comic, state, comic_md)
+        ev_fin = finish.click(do_finish, [state, with_comic] + [r[3] for r in rows],
+                              [state, transcript, summary, comic_md, status, voice_box],
+                              concurrency_limit=None)
+        ev_comic = comic_btn.click(do_comic, state, comic_md, concurrency_limit=None)
+        cancel_btn.click(do_cancel, None, status, cancels=[ev_go, ev_fin, ev_comic])
         folder_btn.click(open_folder, state, folder_md)
         save_g.click(save_group, [ich_name, ich_rolle, dm_dd, table, kontext],
                      [g_status, n_andere, dm_dd] + img_slots).then(
@@ -683,7 +728,8 @@ def build():
         strata_pick.click(pick_strata, None, [strata_cmd, ki_md])
         strata_find.click(do_find_strata, None, ki_md)
         dbg_btn.click(do_debug, None, [dbg_md, dbg_text, dbg_file])
-        test.click(test_llm, None, s_status)
+        ev_test = test.click(test_llm, None, s_status, concurrency_limit=None)
+        test_stop.click(do_cancel, None, s_status, cancels=[ev_test])
         vdel.click(delete_voice, vlist, [vlist, v_status])
         vlist.focus(lambda: gr.update(choices=list(C.voices())), None, vlist)
     return app, theme

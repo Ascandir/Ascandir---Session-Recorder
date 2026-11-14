@@ -1,2 +1,2 @@
-- **🐞 Debug-Log erstellen** (⚙️ Einstellungen): sammelt alle Infos zur Fehlersuche in einer Datei auf dem Desktop
-- Das Tool protokolliert jetzt jeden wichtigen Schritt (KI-Start/-Stopp, Aufnahme, Analyse, Fehler)
+- **⏹ Abbrechen** neben „Analysieren“ (und beim KI-Test): beendet einen laufenden Durchlauf samt gestarteter KI sofort
+- Läuft schon etwas (z. B. ein hängender Strata-Start), sagt das Tool das jetzt sofort, statt dass ein Klick unbemerkt wartet
