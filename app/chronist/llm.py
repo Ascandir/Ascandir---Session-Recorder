@@ -16,6 +16,7 @@ import zipfile
 from pathlib import Path
 
 from . import config as C
+from .debuglog import log
 
 WIN = sys.platform == "win32"
 NOWIN = 0x08000000 if WIN else 0
@@ -321,14 +322,16 @@ class KI:
         return ["cmd", "/c", path], "cli"
 
     def _start(self, cmd, kind, cwd=None):
-        log = open(LOG, "a", encoding="utf-8", errors="replace")
-        log.write(f"\n=== {time.ctime()} Start: {cmd}\n")
-        log.flush()
-        kw = dict(stdout=log, stderr=log, cwd=cwd)
+        log.info("KI-Start (%s): %s", kind, cmd)
+        logf = open(LOG, "a", encoding="utf-8", errors="replace")
+        logf.write(f"\n=== {time.ctime()} Start: {cmd}\n")
+        logf.flush()
+        kw = dict(stdout=logf, stderr=logf, cwd=cwd)
         if kind in ("cli", "shell", "server"):
             kw["creationflags"] = NOWIN
             kw["stdin"] = subprocess.PIPE
         self.proc = subprocess.Popen(cmd, shell=(kind == "shell"), **kw)
+        log.info("KI-Prozess gestartet, PID %s", self.proc.pid)
         self.started = True
         ACTIVE.add(self)
         if kw.get("stdin"):
@@ -340,9 +343,17 @@ class KI:
 
     def _wait(self, url, timeout, what):
         t0 = time.time()
+        log.info("Warte auf %s unter %s (max. %s s)", what, url, timeout)
+        last_log = 0
         while time.time() - t0 < timeout:
             if api_up(url):
+                log.info("%s antwortet nach %.0f s", what, time.time() - t0)
                 return
+            if time.time() - last_log > 30:
+                last_log = time.time()
+                rc = self.proc.poll() if self.proc else None
+                log.info("… noch keine Antwort nach %.0f s (Prozess %s)", time.time() - t0,
+                         "läuft" if rc is None else f"beendet mit Code {rc}")
             if self.proc is not None and self.proc.poll() is not None and self.proc.returncode not in (0, None) \
                     and time.time() - t0 > 10 and not api_up(url):
                 raise RuntimeError(f"{what} hat sich beendet, bevor sie bereit war.\n\nLetzte Meldungen:\n{_log_tail()}")
@@ -355,6 +366,7 @@ class KI:
 
     def __enter__(self):
         st = C.settings()
+        log.info("KI wird gebraucht – Modus: %s (eingestellt: %s)", self.mode, st.get("ki_modus"))
         if self.mode == "Eigene Adresse":
             self.url = st["llm_url"]
             if not api_up(self.url):
@@ -375,7 +387,9 @@ class KI:
         # Strata
         self.url = st["llm_url"]
         if api_up(self.url):
+            log.info("Strata läuft schon unter %s – wird nicht angefasst", self.url)
             return self.url          # läuft schon – nicht anfassen
+        log.info("Strata-Suche: %s", find_strata(force=True))
         cmd, kind = self._strata_cmd()
         self.progress(0.01, "Strata wird gestartet …")
         self._start(cmd, kind)
@@ -385,6 +399,7 @@ class KI:
     def stop(self):
         if not self.started:
             return
+        log.info("KI wird beendet (Modus %s)", self.mode)
         st = C.settings()
         if self.mode == "Strata" and not st.get("strata_beenden", True):
             return
@@ -401,10 +416,12 @@ class KI:
         ACTIVE.discard(self)
 
     def __exit__(self, *exc):
+        if exc and exc[0]:
+            log.error("Fehler während die KI lief: %s", "".join(__import__("traceback").format_exception(*exc)))
         try:
             self.stop()
         except Exception:
-            pass
+            log.exception("Fehler beim Beenden der KI")
         return False
 
 

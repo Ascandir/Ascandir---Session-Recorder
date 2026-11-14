@@ -16,6 +16,9 @@ if sys.stdout is None or sys.stderr is None:
     sys.stdout = sys.stdout or _log
     sys.stderr = sys.stderr or _log
 
+from chronist import debuglog  # noqa: E402
+debuglog.setup()
+
 if __name__ == "__main__":
     if "--modelle" in sys.argv:
         from chronist import models

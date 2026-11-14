@@ -1,4 +1,2 @@
-- „Wer ist wer?“: alle Gruppenmitglieder stehen jetzt als Knöpfe direkt zur Auswahl (statt Ausklappliste)
-- Strata wird besser gefunden (Windows-Programmliste und Startmenü-Verknüpfungen)
-- Neu unter ⚙️ → Lokale KI → Strata-Einstellungen: „📂 Strata.exe auswählen …“ und „🔍 Strata neu suchen“
-- Startet Strata nicht, zeigt das Tool jetzt die letzten Meldungen direkt an
+- **🐞 Debug-Log erstellen** (⚙️ Einstellungen): sammelt alle Infos zur Fehlersuche in einer Datei auf dem Desktop
+- Das Tool protokolliert jetzt jeden wichtigen Schritt (KI-Start/-Stopp, Aufnahme, Analyse, Fehler)

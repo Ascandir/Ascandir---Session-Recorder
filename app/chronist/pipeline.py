@@ -12,6 +12,7 @@ from . import audio as A
 from . import config as C
 from . import diarize as D
 from . import transcribe as T
+from .debuglog import log
 
 
 def _slug(s):
@@ -69,6 +70,7 @@ def analyse(path, title, n_andere, spuren_vertauscht=False, progress=lambda f, m
 
     progress(0.01, "Tonspuren werden gelesen ...")
     n = A.audio_streams(path)
+    log.info("Analyse: %s (%s Tonspuren, %s weitere Personen)", path.name, n, n_andere)
     if n == 0:
         raise RuntimeError("In der Datei ist keine Tonspur.")
     if n >= 2:
@@ -90,6 +92,7 @@ def analyse(path, title, n_andere, spuren_vertauscht=False, progress=lambda f, m
     progress(0.05, "Stimmen werden getrennt ...")
     segs = D.diarize(dis, n_spk, sub(0.05, 0.25, "Stimmen werden getrennt ..."))
     clusters = sorted({k for _, _, k in segs})
+    log.info("Stimmtrennung: %s Stimmen, %s Abschnitte", len(clusters), len(segs))
 
     progress(0.25, "Stimmen werden wiedererkannt ...")
     profiles = C.voices()
@@ -134,6 +137,8 @@ def analyse(path, title, n_andere, spuren_vertauscht=False, progress=lambda f, m
     with open(out / "analyse.json", "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False)
     shutil.rmtree(work, ignore_errors=True)
+    log.info("Analyse fertig: %s Wörter, Stimmen: %s", len(words),
+             [(v["id"], v["vorschlag"], v["aehnlichkeit"]) for v in stimmen])
     progress(1.0, "Fertig analysiert.")
     return state
 

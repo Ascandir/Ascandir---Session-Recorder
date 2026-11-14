@@ -13,6 +13,7 @@ from . import summary as S
 from .recorder import REC, find_discord, list_mics
 from . import updater as U
 from . import llm as L
+from .debuglog import log, save_report
 
 MAX_STIMMEN = 12
 MAX_BILDER = 10
@@ -81,6 +82,7 @@ def do_analyse(rec, title, n_andere, vertauscht, with_comic, progress=gr.Progres
         state = P.analyse(rec, title, n_andere, vertauscht,
                           progress=lambda f, m: progress(f * 0.6, desc=m))
     except Exception as e:
+        log.exception("Analyse fehlgeschlagen")
         raise gr.Error(str(e))
     unbekannt = sum(1 for v in state["stimmen"] if not v["vorschlag"])
     if unbekannt:
@@ -131,6 +133,7 @@ def _finish(state, with_comic, names, pr):
             if with_comic:
                 comic = S.comic(state, url, progress=pr)
     except Exception as e:
+        log.exception("Zusammenfassung fehlgeschlagen")
         return (state, text, f"⚠️ Die Abschrift ist fertig, aber die Zusammenfassung ging schief:\n\n"
                 f"`{e}`\n\nÖffne die Session unter „Erweitert → Gespeicherte Session öffnen“ und klick "
                 "auf **Weiter** – die Abschrift muss nicht wiederholt werden.", "")
@@ -234,10 +237,13 @@ def save_settings(url, model, wm, ordner, schwelle, design, upd_start,
 
 def test_llm(progress=gr.Progress()):
     try:
+        log.info("KI-Test gestartet")
         ans = L.test(lambda f, m: progress(f, desc=m))
+        log.info("KI-Test ok: %s", ans)
         return f"✅ {ans}\n\nDie KI wurde danach wieder beendet (falls das Tool sie gestartet hat)."
     except Exception as e:
-        return f"❌ {e}"
+        log.exception("KI-Test fehlgeschlagen")
+        return f"❌ {e}\n\nKlick auf **🐞 Debug-Log erstellen** und schick mir die Datei."
 
 
 def ki_status():
@@ -255,6 +261,20 @@ def _ki_status(mode, st):
                 "Die eingebaute KI wird beim ersten Bedarf automatisch geladen (ca. 9 GB) – "
                 "oder jetzt mit dem Knopf unten.")
     return f"Es wird die KI unter `{st['llm_url']}` genutzt. Sie muss selbst gestartet sein."
+
+
+def do_debug():
+    try:
+        path, text = save_report()
+    except Exception as e:
+        raise gr.Error(f"Debug-Log konnte nicht erstellt werden: {e}")
+    if sys.platform == "win32":
+        try:
+            os.startfile(os.path.dirname(path))
+        except Exception:
+            pass
+    return (f"✅ Gespeichert: `{path}`  \nSchick mir einfach diese Datei (oder kopier den Text unten).",
+            gr.update(value=text, visible=True), gr.update(value=path, visible=True))
 
 
 def pick_strata():
@@ -554,6 +574,11 @@ def build():
             img_status = gr.Markdown()
 
           with gr.Tab("⚙️ Einstellungen", id="einstellungen"):
+            with gr.Row():
+                dbg_btn = gr.Button("🐞 Debug-Log erstellen", variant="secondary", scale=0, min_width=220)
+                dbg_md = gr.Markdown("Sammelt alle Infos zur Fehlersuche in einer Datei auf deinem Desktop.")
+            dbg_file = gr.File(label="Debug-Log", visible=False, interactive=False)
+            dbg_text = gr.Textbox(label="Inhalt", lines=12, visible=False, buttons=["copy"])
             gr.Markdown("### 🧠 Lokale KI (für Zusammenfassung & Comic)")
             ki_mode = gr.Radio(L.MODI, value=st.get("ki_modus", "Automatisch"), label="Welche KI?",
                                info="Automatisch (empfohlen): nimmt Strata, wenn es da ist – sonst die eingebaute KI. "
@@ -657,6 +682,7 @@ def build():
         inst_ki.click(do_install_builtin, None, ki_md)
         strata_pick.click(pick_strata, None, [strata_cmd, ki_md])
         strata_find.click(do_find_strata, None, ki_md)
+        dbg_btn.click(do_debug, None, [dbg_md, dbg_text, dbg_file])
         test.click(test_llm, None, s_status)
         vdel.click(delete_voice, vlist, [vlist, v_status])
         vlist.focus(lambda: gr.update(choices=list(C.voices())), None, vlist)
@@ -701,7 +727,8 @@ def launch():
                        prevent_thread_lock=True,
                        theme=theme, js=js, show_error=True, quiet=True,
                        css="footer {display: none !important;}",
-                       allowed_paths=[str(C.SESSIONS), str(C.RECORDINGS), str(C.IMAGES)])
+                       allowed_paths=[str(C.SESSIONS), str(C.RECORDINGS), str(C.IMAGES), str(C.DATA),
+                                      str(Path.home() / "Desktop")])
     try:
         _open_window(url, own_server=True)
     except Exception as e:      # kein WebView2 o. Ä. → Browser als Notlösung

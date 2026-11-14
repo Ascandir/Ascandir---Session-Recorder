@@ -13,6 +13,7 @@ import numpy as np
 import soundfile as sf
 
 from . import config as C
+from .debuglog import log
 from .audio import FFMPEG, _NOWIN
 
 DISCORD_NAMES = {"discord.exe", "discordptb.exe", "discordcanary.exe"}
@@ -180,6 +181,8 @@ class Recorder:
         self.dis.start(t0)
         self.start_time = t0
         self._stream.start()
+        log.info("Aufnahme gestartet: %s | Mikro %s (%s Hz, %s Kanäle)", self.out_path.name,
+                 dev.get("name"), mic_sr, mic_ch)
         self.running = True
         self._threads = [threading.Thread(target=self._writer, daemon=True),
                          threading.Thread(target=self._discord_loop, daemon=True)]
@@ -219,8 +222,10 @@ class Recorder:
                     cap = ProcessAudioCapture(pid)
                     cap.start()
                     self.discord_status = "✅ Discord wird aufgenommen."
+                    log.info("Discord-Aufnahme verbunden (PID %s)", pid)
                 except Exception as e:
                     self.discord_status = f"⚠️ Discord-Ton nicht erreichbar: {e}"
+                    log.warning("Discord-Ton nicht erreichbar: %s", e)
                     cap = None
                     self._stop.wait(3)
                     continue
@@ -273,6 +278,8 @@ class Recorder:
             self.dis._silence(int((mic_len - dis_len) * self.dis.sr))
         self.mic.close(); self.dis.close()
         self.running = False
+        log.info("Aufnahme beendet: Mikro %.0f s, Discord %.0f s, Mikro-Stocker: %s",
+                 self.mic.written / self.mic.sr, self.dis.written / self.dis.sr, getattr(self, "overflows", 0))
         r = subprocess.run([FFMPEG, "-y", "-hide_banner", "-loglevel", "error",
                             "-i", str(self.mic.path), "-i", str(self.dis.path),
                             "-map", "0:a", "-map", "1:a", "-c", "copy",
