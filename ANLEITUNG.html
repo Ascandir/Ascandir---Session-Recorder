@@ -60,7 +60,7 @@
 <p>Unter <b>⚙️ Einstellungen → Lokale KI</b> wählst du:</p>
 <ul>
 <li><b>Automatisch</b> (Standard) – nimmt Strata, wenn es da ist, sonst die eingebaute KI. Du musst nichts einstellen.</li>
-<li><b>Strata</b> – das Tool findet dein Strata selbst (App oder <code>strata launch</code>), startet es für die Zusammenfassung und beendet es danach. Wird es nicht gefunden, trag unter „Strata-Einstellungen“ den Pfad zur <code>Strata.exe</code> ein.</li>
+<li><b>Strata</b> – das Tool findet den <code>strata</code>-Befehl selbst und startet dein gespeichertes <b>Strata-Preset</b> ohne Fenster (<code>strata launch --preset … --no-tui</code>), danach beendet es Strata wieder (<code>strata launch --stop</code>). Welches Preset, wählst du unter „Strata-Einstellungen“ → <b>🔍 Strata &amp; Presets suchen</b>. Noch kein Preset? Strata einmal normal starten, Modell wählen und „Save as preset“ nehmen.</li>
 <li><b>Eingebaute KI</b> – für PCs ohne Strata: wird beim ersten Bedarf automatisch installiert (ca. 9&nbsp;GB, Qwen3-14B auf der Grafikkarte) und ebenfalls nur bei Bedarf gestartet.</li>
 <li><b>Eigene Adresse</b> – für eine KI, die du selbst startest.</li>
 </ul>
@@ -83,7 +83,7 @@
   <tr><th>Problem</th><th>Lösung</th></tr>
   <tr><td>„Discord läuft nicht“</td><td>Die Discord-<b>App</b> starten (Discord im Browser wird nicht erkannt). Startet Discord während der Aufnahme neu, verbindet sich das Tool von selbst wieder.</td></tr>
   <tr><td>Discord-Balken bewegt sich nicht</td><td>Kurz prüfen, ob du die anderen hörst. Manche Windows-Versionen vor 2020 unterstützen die Programm-Aufnahme nicht – dann Windows aktualisieren.</td></tr>
-  <tr><td>Strata startet nicht / „hat nicht geantwortet“</td><td>Unter <b>⚙️ Einstellungen → Lokale KI → Strata-Einstellungen</b> den Pfad zur <code>Strata.exe</code> eintragen und <b>KI testen</b> drücken. Dauert das Laden länger, die Wartezeit erhöhen. Details stehen in <code>daten\ki-log.txt</code>. Nochmal Schritt 2 klicken – die Analyse muss nicht wiederholt werden.</td></tr>
+  <tr><td>Strata startet nicht / „hat nicht geantwortet“</td><td>Unter <b>⚙️ Einstellungen → Lokale KI → Strata-Einstellungen</b> den Pfad zur <code>Strata.exe</code> eintragen und <b>KI testen</b> drücken. Dauert das Laden länger, die Wartezeit erhöhen. Am schnellsten: <b>🐞 Debug-Log erstellen</b> und die Datei an Claude schicken. Nochmal Schritt 2 klicken – die Analyse muss nicht wiederholt werden.</td></tr>
   <tr><td>Sätze landen bei der falschen Person</td><td>Bei „Wer ist wer?“ prüfen. Sind zwei Leute zu einer Stimme verschmolzen: die richtige Anzahl eintragen und neu analysieren.</td></tr>
   <tr><td>Abschrift klingt unsauber</td><td>Unter <b>⚙️ Einstellungen → Spracherkennung</b> <code>large-v3</code> wählen (genauer, aber langsamer; lädt beim ersten Mal nochmal ca. 3&nbsp;GB).</td></tr>
   <tr><td>Tool öffnet sich nicht</td><td>In <code>daten\log.txt</code> im Installationsordner steht, was schiefging – die Datei an Claude schicken.</td></tr>

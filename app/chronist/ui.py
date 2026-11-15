@@ -16,6 +16,13 @@ from . import llm as L
 from .debuglog import log, save_report
 
 MAX_STIMMEN = 12
+CSS = """
+footer {display: none !important;}
+.status-card {border-left: 4px solid #f2a93b; background: rgba(242,169,59,.08);
+              padding: 14px 18px !important; border-radius: 8px; min-height: 64px;}
+.result-card {padding: 6px 4px; min-height: 120px;}
+h4 {margin-top: 18px !important; color: #f2a93b;}
+"""
 MAX_BILDER = 10
 EXT = {".mka", ".mkv", ".mp4", ".mov", ".wav", ".mp3", ".flac", ".m4a", ".ogg", ".aac"}
 
@@ -114,6 +121,8 @@ def do_analyse(rec, title, n_andere, vertauscht, with_comic, progress=gr.Progres
     """Ein Klick: Abschrift → Stimmen → (nur bei Unbekannten anhalten) → KI an → Chronik → KI aus."""
     if not rec:
         raise gr.Error("Bitte zuerst eine Aufnahme auswählen.")
+    if not n_andere or int(n_andere) < 1:
+        n_andere = n_spieler() or 0
     try:
         state = P.analyse(rec, title, n_andere, vertauscht,
                           progress=lambda f, m: progress(f * 0.6, desc=m))
@@ -294,7 +303,11 @@ def ki_status():
 
 def _ki_status(mode, st):
     if mode == "Strata":
-        return L.strata_description()
+        d = L.strata_description()
+        if L.strata_cli():
+            p = st.get("strata_preset") or "(erstes gespeichertes)"
+            d += f"  \nPreset: **{p}** – Start ohne Fenster, Stopp über `strata launch --stop`."
+        return d
     if mode == "Eingebaute KI":
         return ("✅ Eingebaute KI ist installiert." if L.builtin_installed() else
                 "Die eingebaute KI wird beim ersten Bedarf automatisch geladen (ca. 9 GB) – "
@@ -307,12 +320,7 @@ def do_debug():
         path, text = save_report()
     except Exception as e:
         raise gr.Error(f"Debug-Log konnte nicht erstellt werden: {e}")
-    if sys.platform == "win32":
-        try:
-            os.startfile(os.path.dirname(path))
-        except Exception:
-            pass
-    return (f"✅ Gespeichert: `{path}`  \nSchick mir einfach diese Datei (oder kopier den Text unten).",
+    return (f"✅ Erstellt – lade die Datei unten herunter oder kopier den Text. (Liegt auch im Programmordner unter `daten\\debug`.)",
             gr.update(value=text, visible=True), gr.update(value=path, visible=True))
 
 
@@ -331,6 +339,17 @@ def pick_strata():
 
 def do_find_strata():
     L.find_strata(force=True)
+    names, raw = L.list_presets()
+    cur = C.settings().get("strata_preset", "")
+    return (ki_status(), gr.update(choices=["(automatisch)"] + names,
+                                   value=cur if cur in names else "(automatisch)"),
+            f"```\n{raw or 'keine Ausgabe'}\n```")
+
+
+def save_preset(name):
+    st = C.settings()
+    st["strata_preset"] = "" if name in (None, "(automatisch)") else name
+    C.save("einstellungen", st)
     return ki_status()
 
 
@@ -532,34 +551,37 @@ def build():
             timer = gr.Timer(1.0, active=REC.running)
 
           with gr.Tab("📜 Session auswerten", id="auswerten"):
-            with gr.Row():
-                rec = gr.Dropdown(choices=recordings(), label="Aufnahme (neueste zuerst)",
-                                  allow_custom_value=True, scale=5,
-                                  info="Deine Aufnahmen – oder einen Dateipfad einfügen")
-                refresh = gr.Button("🔄", scale=0, min_width=50)
-            with gr.Row():
-                title = gr.Textbox(label="Titel der Session", placeholder="z. B. Session 12 – Der Keller")
-                n_andere = gr.Number(label="Wie viele Leute waren außer dir im Discord?",
-                                     value=n_spieler() or 4, precision=0, minimum=0,
-                                     info="0 = automatisch erkennen")
+            gr.Markdown("#### ① Aufnahme wählen")
+            with gr.Group():
+                with gr.Row():
+                    rec = gr.Dropdown(choices=recordings(), label="Aufnahme (neueste zuerst)",
+                                      allow_custom_value=True, scale=5)
+                    refresh = gr.Button("🔄", scale=0, min_width=50)
+                with gr.Row():
+                    title = gr.Textbox(label="Titel der Session", placeholder="z. B. Session 12 – Der Keller")
+                    n_andere = gr.Number(label="Leute außer dir im Discord",
+                                         value=n_spieler() or 4, precision=0, minimum=1,
+                                         info="Standard: alle aus deiner Gruppe")
+                with_comic = gr.Checkbox(label="Comic-Vorlage mit erstellen", value=True)
             with gr.Accordion("Erweitert", open=False):
                 vertauscht = gr.Checkbox(label="Spuren vertauscht (Discord ist Spur 1, Mikro Spur 2)")
                 with gr.Row():
                     alte = gr.Dropdown(choices=P.list_sessions(), label="Gespeicherte Session öffnen")
                     load_btn = gr.Button("Öffnen", scale=0)
-            with_comic = gr.Checkbox(label="Comic-Vorlage mit erstellen", value=True)
+
+            gr.Markdown("#### ② Auswerten")
             with gr.Row():
                 go = gr.Button("▶ Analysieren", variant="primary", size="lg", scale=5)
                 cancel_btn = gr.Button("⏹ Abbrechen", variant="stop", size="lg", scale=1)
-            gr.Markdown("Macht alles in einem Rutsch: Abschrift, Stimmen erkennen, KI starten, Chronik "
-                        "schreiben, KI wieder beenden. Bei 3 Stunden Aufnahme grob 30–75 Minuten.")
-            status = gr.Markdown()
+            status = gr.Markdown("Klick auf **▶ Analysieren** – der Rest passiert von selbst: Abschrift, "
+                                 "Stimmen erkennen, KI starten, Chronik schreiben, KI beenden. "
+                                 "Bei 3 Stunden Aufnahme grob 30–75 Minuten.",
+                                 elem_classes=["status-card"])
 
             with gr.Column(visible=False) as voice_box:
-                gr.Markdown("### Wer ist wer?\nEinmal zuordnen – danach erkennt das Tool die Stimmen "
-                            "selbst wieder. Musik-Bots o. Ä. auf *(ignorieren)* stellen. Bei bekannten "
-                            "Stimmen kannst du die Auswahl korrigieren. Fehlt jemand? Im Tab **Gruppe** "
-                            "eintragen und speichern – dann erscheint er hier.")
+                gr.Markdown("#### Wer ist wer?\nEinmal zuordnen – danach erkennt das Tool die Stimmen "
+                            "selbst wieder. Musik-Bots o. Ä. auf *(ignorieren)* stellen. Fehlt jemand? "
+                            "Im Tab **Gruppe** eintragen und speichern.")
                 rows = []
                 for i in range(MAX_STIMMEN):
                     with gr.Group(visible=False) as r:
@@ -570,14 +592,20 @@ def build():
                     rows.append((r, md, au, dd))
                 finish = gr.Button("Weiter ▶", variant="primary", size="lg")
 
-            summary = gr.Markdown()
-            with gr.Accordion("Abschrift", open=False):
-                transcript = gr.Textbox(lines=18, show_label=False)
+            gr.Markdown("#### ③ Ergebnis")
+            with gr.Tabs():
+                with gr.Tab("📖 Chronik"):
+                    summary = gr.Markdown("*Noch keine Chronik – sie erscheint hier nach der Auswertung.*",
+                                          elem_classes=["result-card"])
+                with gr.Tab("🖼️ Comic-Vorlage"):
+                    comic_md = gr.Markdown("*Noch keine Comic-Vorlage.*", elem_classes=["result-card"])
+                    comic_btn = gr.Button("🖼️ Comic-Vorlage (neu) erstellen")
+                with gr.Tab("📝 Abschrift"):
+                    transcript = gr.Textbox(lines=20, show_label=False, buttons=["copy"],
+                                            placeholder="Die komplette Abschrift erscheint hier.")
             with gr.Row():
-                comic_btn = gr.Button("🖼️ Comic-Vorlage erstellen")
-                folder_btn = gr.Button("📂 Ordner öffnen")
-            folder_md = gr.Markdown()
-            comic_md = gr.Markdown()
+                folder_btn = gr.Button("📂 Session-Ordner öffnen", scale=0, min_width=280)
+                folder_md = gr.Markdown()
 
           with gr.Tab("👥 Gruppe", id="gruppe"):
             gr.Markdown("Trag hier eure Runde ein. Die Charakternamen helfen auch der "
@@ -617,7 +645,7 @@ def build():
           with gr.Tab("⚙️ Einstellungen", id="einstellungen"):
             with gr.Row():
                 dbg_btn = gr.Button("🐞 Debug-Log erstellen", variant="secondary", scale=0, min_width=220)
-                dbg_md = gr.Markdown("Sammelt alle Infos zur Fehlersuche in einer Datei auf deinem Desktop.")
+                dbg_md = gr.Markdown("Sammelt alle Infos zur Fehlersuche in einer Datei zum Verschicken.")
             dbg_file = gr.File(label="Debug-Log", visible=False, interactive=False)
             dbg_text = gr.Textbox(label="Inhalt", lines=12, visible=False, buttons=["copy"])
             gr.Markdown("### 🧠 Lokale KI (für Zusammenfassung & Comic)")
@@ -630,8 +658,12 @@ def build():
                                         value=st.get("strata_befehl", ""),
                                         placeholder=r"z. B. C:\Users\Tim\AppData\Local\Programs\Strata\Strata.exe  oder  strata launch")
                 with gr.Row():
-                    strata_pick = gr.Button("📂 Strata.exe auswählen …")
-                    strata_find = gr.Button("🔍 Strata neu suchen")
+                    strata_preset_dd = gr.Dropdown(["(automatisch)"], value="(automatisch)",
+                                                   label="Strata-Preset", scale=4,
+                                                   info="Welches gespeicherte Strata-Preset soll gestartet werden?")
+                    strata_find = gr.Button("🔍 Strata & Presets suchen", scale=1)
+                presets_raw = gr.Markdown()
+                strata_pick = gr.Button("📂 Strata-Programm selbst auswählen …")
                 strata_stop = gr.Checkbox(value=st.get("strata_beenden", True),
                                           label="Strata nach der Zusammenfassung wieder beenden (gibt die Grafikkarte frei)")
                 strata_wait = gr.Slider(2, 30, value=int(st.get("strata_wartezeit", 900)) // 60, step=1,
@@ -703,13 +735,13 @@ def build():
         refresh.click(lambda: gr.update(choices=recordings()), None, rec)
         ev_go = go.click(do_analyse, [rec, title, n_andere, vertauscht, with_comic],
                          [status, state, voice_box] + voice_outs + [transcript, summary, comic_md],
-                         concurrency_limit=None)
+                         concurrency_limit=None, show_progress_on=[status])
         load_btn.click(do_load, alte, [status, state, voice_box] + voice_outs
                        + [summary, transcript, comic_md])
         alte.focus(lambda: gr.update(choices=P.list_sessions()), None, alte)
         ev_fin = finish.click(do_finish, [state, with_comic] + [r[3] for r in rows],
                               [state, transcript, summary, comic_md, status, voice_box],
-                              concurrency_limit=None)
+                              concurrency_limit=None, show_progress_on=[status])
         ev_comic = comic_btn.click(do_comic, state, comic_md, concurrency_limit=None)
         cancel_btn.click(do_cancel, None, status, cancels=[ev_go, ev_fin, ev_comic])
         folder_btn.click(open_folder, state, folder_md)
@@ -726,7 +758,8 @@ def build():
                        ki_mode, ki_md)
         inst_ki.click(do_install_builtin, None, ki_md)
         strata_pick.click(pick_strata, None, [strata_cmd, ki_md])
-        strata_find.click(do_find_strata, None, ki_md)
+        strata_find.click(do_find_strata, None, [ki_md, strata_preset_dd, presets_raw])
+        strata_preset_dd.input(save_preset, strata_preset_dd, ki_md)
         dbg_btn.click(do_debug, None, [dbg_md, dbg_text, dbg_file])
         ev_test = test.click(test_llm, None, s_status, concurrency_limit=None)
         test_stop.click(do_cancel, None, s_status, cancels=[ev_test])
@@ -772,9 +805,8 @@ def launch():
     app.queue().launch(server_name="127.0.0.1", server_port=7860, inbrowser=False,
                        prevent_thread_lock=True,
                        theme=theme, js=js, show_error=True, quiet=True,
-                       css="footer {display: none !important;}",
-                       allowed_paths=[str(C.SESSIONS), str(C.RECORDINGS), str(C.IMAGES), str(C.DATA),
-                                      str(Path.home() / "Desktop")])
+                       css=CSS,
+                       allowed_paths=[str(C.SESSIONS), str(C.RECORDINGS), str(C.IMAGES), str(C.DATA)])
     try:
         _open_window(url, own_server=True)
     except Exception as e:      # kein WebView2 o. Ä. → Browser als Notlösung

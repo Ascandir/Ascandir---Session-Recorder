@@ -28,6 +28,7 @@ DEFAULT_SETTINGS = {
     "update_beim_start": True,
     "ki_modus": "Automatisch",   # Strata wenn gefunden, sonst eingebaute KI
     "strata_befehl": "",
+    "strata_preset": "",         # leer = erstes gespeichertes Preset
     "strata_beenden": True,
     "strata_wartezeit": 900,
     "match_schwelle": 0.55,

@@ -1,2 +1,5 @@
-- **⏹ Abbrechen** neben „Analysieren“ (und beim KI-Test): beendet einen laufenden Durchlauf samt gestarteter KI sofort
-- Läuft schon etwas (z. B. ein hängender Strata-Start), sagt das Tool das jetzt sofort, statt dass ein Klick unbemerkt wartet
+- **Strata startet jetzt richtig:** über dein gespeichertes Preset ohne Fenster (`strata launch --preset … --no-tui`), mit Strata-Schlüssel, und wird danach mit `strata launch --stop` beendet
+- Preset-Auswahl unter ⚙️ → Lokale KI → Strata-Einstellungen („🔍 Strata & Presets suchen“)
+- **Neues Layout** im Tab „Session auswerten“: ① Aufnahme → ② Auswerten → ③ Ergebnis (Chronik / Comic-Vorlage / Abschrift als Tabs); der Fortschritt steht in einer eigenen Statuskarte
+- Debug-Log landet nicht mehr auf dem Desktop, sondern im Programmordner (`daten\debug`) und kann direkt heruntergeladen werden
+- Anzahl der Stimmen: Standard sind jetzt alle aus deiner Gruppe (verhindert „93 Stimmen“ bei automatischer Erkennung)

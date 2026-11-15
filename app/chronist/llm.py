@@ -33,13 +33,101 @@ LOG = C.DATA / "ki-log.txt"
 
 
 # ---------- Hilfen ----------
+KEYS = {}          # url -> API-Schlüssel (von Strata)
+
+
 def api_up(url, timeout=3):
     try:
-        req = urllib.request.Request(url.rstrip("/") + "/models", headers={"Authorization": "Bearer lokal"})
+        req = urllib.request.Request(url.rstrip("/") + "/models",
+                                     headers={"Authorization": f"Bearer {KEYS.get(url, 'lokal')}"})
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status == 200
+    except urllib.error.HTTPError as e:
+        return e.code in (401, 403)      # läuft, will nur einen Schlüssel
     except Exception:
         return False
+
+
+# ---------- Strata-Befehle (offizielle Terminal-Befehle) ----------
+def strata_cli():
+    """Pfad zum strata-Befehl oder None."""
+    custom = C.settings().get("strata_befehl", "").strip().strip('"')
+    if custom and Path(custom).name.lower().startswith("strata") and Path(custom).suffix.lower() in (".cmd", ".exe", ".bat", "") \
+            and Path(custom).exists() and "launch" not in custom:
+        return custom
+    f = find_strata()
+    if f and f[0] == "cli":
+        return f[1]
+    return shutil.which("strata")
+
+
+def run_strata(args, timeout=60):
+    exe = strata_cli()
+    if not exe:
+        return 127, "strata-Befehl nicht gefunden"
+    try:
+        r = subprocess.run([exe] + args, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=timeout, creationflags=NOWIN, stdin=subprocess.DEVNULL)
+        return r.returncode, (r.stdout or "") + (r.stderr or "")
+    except subprocess.TimeoutExpired:
+        return 124, "Zeitüberschreitung"
+    except Exception as e:
+        return 1, str(e)
+
+
+def list_presets():
+    """Gespeicherte Strata-Presets (Namen) + Rohausgabe."""
+    import re
+    rc, out = run_strata(["launch", "--list-presets"], timeout=30)
+    names = []
+    for line in out.splitlines():
+        t = line.strip()
+        if not t or rc not in (0,):
+            continue
+        low = t.lower()
+        if low.startswith(("saved preset", "presets", "no preset", "keine", "name ", "usage", "strata:")) or set(t) <= set("-=_ "):
+            continue
+        t = re.sub(r"^[\-\*\u2022\d\.\)\s]+", "", t)          # Aufzählungszeichen
+        m = re.match(r'^"([^"]+)"', t) or re.match(r"^'([^']+)'", t)
+        name = m.group(1) if m else re.split(r"\s{2,}|\t| – | - |: | \(", t)[0].strip()
+        if name and name not in names and len(name) < 80:
+            names.append(name)
+    return names, out.strip()
+
+
+def strata_preset():
+    st = C.settings()
+    if st.get("strata_preset"):
+        return st["strata_preset"]
+    names, _ = list_presets()
+    return names[0] if names else ""
+
+
+def _redact(text, key):
+    return text.replace(key, key[:4] + "…") if key and len(key) > 6 else text
+
+
+def strata_key(preset):
+    import re
+    args = ["launch", "--show-key"] + (["--preset", preset] if preset else [])
+    rc, out = run_strata(args, timeout=30)
+    m = re.search(r"(?i)key[^:=\n]*[:=]\s*\"?([A-Za-z0-9_\-\.]{8,})", out)
+    if m:
+        return m.group(1)
+    toks = re.findall(r"[A-Za-z0-9_\-]{20,}", out)
+    return toks[-1] if toks else ""
+
+
+def strata_status_urls():
+    import re
+    rc, out = run_strata(["launch", "--status"], timeout=20)
+    urls = []
+    for m in re.finditer(r"https?://[0-9a-zA-Z\.\-]+:\d+(?:/v1)?", out):
+        u = m.group(0).replace("0.0.0.0", "127.0.0.1")
+        u = u if u.endswith("/v1") else u + "/v1"
+        if u not in urls:
+            urls.append(u)
+    return urls, out
 
 
 def _log_tail(n=12):
@@ -298,11 +386,14 @@ class KI:
         self.started = False
         self.url = None
         self.mode = resolved_mode()
+        self.preset = ""
 
     # -- Startbefehle
     def _strata_cmd(self):
         st = C.settings()
         custom = st.get("strata_befehl", "").strip()
+        if custom and strata_cli() == custom.strip('"'):
+            custom = ""          # eigener Pfad zum strata-Befehl → wie gefundener Befehl behandeln
         if custom:
             p = custom.strip('"')
             if p.lower().endswith(".exe") and Path(p).exists():
@@ -310,7 +401,8 @@ class KI:
             if p.lower().endswith((".bat", ".cmd")) and Path(p).exists():
                 return ["cmd", "/c", p], "cli"
             return custom, "shell"
-        f = find_strata()
+        cli = strata_cli()
+        f = ("cli", cli) if cli else find_strata()
         if not f:
             raise RuntimeError("Strata wurde nicht gefunden. Bitte unter ⚙️ Einstellungen → Lokale KI den "
                                "Startbefehl eintragen (z. B. den Pfad zu Strata.exe).")
@@ -318,7 +410,13 @@ class KI:
         if art == "app":
             return [path], "exe"
         if art == "cli":
-            return [path, "launch"], "cli"
+            preset = strata_preset()
+            if not preset:
+                raise RuntimeError("In Strata ist noch kein Preset gespeichert. Starte Strata einmal normal, "
+                                   "wähl dein Modell und nimm „Save as preset“ – oder wähl unter ⚙️ Einstellungen → "
+                                   "Lokale KI → Strata-Einstellungen ein Preset aus.")
+            self.preset = preset
+            return [path, "launch", "--preset", preset, "--no-tui", "--yes"], "cli"
         return ["cmd", "/c", path], "cli"
 
     def _start(self, cmd, kind, cwd=None):
@@ -355,8 +453,15 @@ class KI:
                 log.info("… noch keine Antwort nach %.0f s (Prozess %s)", time.time() - t0,
                          "läuft" if rc is None else f"beendet mit Code {rc}")
             if self.proc is not None and self.proc.poll() is not None and self.proc.returncode not in (0, None) \
-                    and time.time() - t0 > 10 and not api_up(url):
+                    and time.time() - t0 > 5 and not api_up(url):
                 raise RuntimeError(f"{what} hat sich beendet, bevor sie bereit war.\n\nLetzte Meldungen:\n{_log_tail()}")
+            if self.mode == "Strata" and strata_cli() and int(time.time() - t0) % 15 < 3 and time.time() - t0 > 5:
+                urls, _ = strata_status_urls()
+                for u in urls:
+                    if u != url and api_up(u):
+                        log.info("Strata meldet sich unter %s (statt %s)", u, url)
+                        self.url = u
+                        return
             sec = int(time.time() - t0)
             self.progress(min(0.95, sec / timeout), f"{what} startet … ({sec // 60}:{sec % 60:02d}) – "
                                                     "beim ersten Laden kann das ein paar Minuten dauern")
@@ -388,13 +493,22 @@ class KI:
         self.url = st["llm_url"]
         if api_up(self.url):
             log.info("Strata läuft schon unter %s – wird nicht angefasst", self.url)
+            self._fetch_key()
             return self.url          # läuft schon – nicht anfassen
         log.info("Strata-Suche: %s", find_strata(force=True))
         cmd, kind = self._strata_cmd()
-        self.progress(0.01, "Strata wird gestartet …")
+        self.progress(0.01, f"Strata wird gestartet (Preset „{self.preset}“) …" if self.preset else "Strata wird gestartet …")
         self._start(cmd, kind)
         self._wait(self.url, int(st.get("strata_wartezeit", 900)), "Strata")
+        self._fetch_key()
         return self.url
+
+    def _fetch_key(self):
+        if strata_cli():
+            key = strata_key(self.preset or strata_preset())
+            if key:
+                KEYS[self.url] = key
+                log.info("Strata-Schlüssel geholt (%s…)", key[:4])
 
     def stop(self):
         if not self.started:
@@ -404,6 +518,10 @@ class KI:
         if self.mode == "Strata" and not st.get("strata_beenden", True):
             return
         self.progress(0.99, "KI wird beendet …")
+        if self.mode == "Strata" and strata_cli():
+            args = ["launch", "--stop"] + (["--preset", self.preset] if self.preset else [])
+            rc, out = run_strata(args, timeout=90)
+            log.info("strata %s → Code %s: %s", " ".join(args), rc, out.strip()[:300])
         if self.proc is not None:
             _kill_tree(self.proc.pid)
         # Hat die App die Engine abgekoppelt gestartet? Dann den Prozess am Port beenden.

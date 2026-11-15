@@ -11,7 +11,8 @@ SYSTEM = ("Du bist der Chronist einer Dungeons-&-Dragons-Gruppe. Du schreibst au
 
 
 def _client(url):
-    return OpenAI(base_url=url.rstrip("/"), api_key=C.settings().get("llm_key") or "lokal",
+    from .llm import KEYS
+    return OpenAI(base_url=url.rstrip("/"), api_key=KEYS.get(url) or C.settings().get("llm_key") or "lokal",
                   timeout=1800)
 
 

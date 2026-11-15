@@ -74,6 +74,12 @@ def report():
         f"KI-Adresse: {st.get('llm_url')}  →  antwortet: {_safe(lambda: L.api_up(st['llm_url']))}",
         f"Eingebaute KI installiert: {_safe(L.builtin_installed)}",
         f"Prozesse am KI-Port: {_safe(lambda: _port_procs(L, st['llm_url']))}",
+        f"strata-Befehl: {_safe(L.strata_cli)}",
+        f"Strata-Preset (Einstellung): {st.get('strata_preset') or '(automatisch)'}  →  benutzt: {_safe(L.strata_preset)}",
+        "strata launch --list-presets:",
+        _safe(lambda: L.list_presets()[1]),
+        "strata launch --status:",
+        _safe(lambda: L.strata_status_urls()[1]),
         f"Laufende Strata-Prozesse: {_safe(_strata_procs)}",
         "",
         "----- Aufnahme -----",
@@ -124,16 +130,13 @@ def _strata_procs():
 
 
 def save_report():
+    import re
     text = report()
+    # API-Schlüssel nie mitschicken
+    text = re.sub(r"(?i)(key[^:=\n]*[:=]\s*\"?)([A-Za-z0-9_\-\.]{4})[A-Za-z0-9_\-\.]{4,}", r"\1\2…", text)
     stamp = dt.datetime.now().strftime("%Y-%m-%d_%H-%M")
-    for folder in (Path.home() / "Desktop", Path.home() / "OneDrive" / "Desktop", C.DATA):
-        try:
-            if folder.exists():
-                p = folder / f"SessionRecorder-Debug-{stamp}.txt"
-                p.write_text(text, encoding="utf-8")
-                return str(p), text
-        except Exception:
-            continue
-    p = C.DATA / f"SessionRecorder-Debug-{stamp}.txt"
+    folder = C.DATA / "debug"
+    folder.mkdir(parents=True, exist_ok=True)
+    p = folder / f"SessionRecorder-Debug-{stamp}.txt"
     p.write_text(text, encoding="utf-8")
     return str(p), text
