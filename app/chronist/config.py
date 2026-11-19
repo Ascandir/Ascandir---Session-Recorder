@@ -9,8 +9,28 @@ MODELS = DATA / "modelle"
 SESSIONS = ROOT / "Sessions"
 RECORDINGS = ROOT / "Aufnahmen"
 IMAGES = DATA / "bilder"
-for p in (DATA, MODELS, SESSIONS, RECORDINGS, IMAGES):
+TEMP = DATA / "temp"                       # alle Zwischendateien
+HF_CACHE = MODELS / "hf-cache"             # Download-Zwischenspeicher der Modellbibliothek
+for p in (DATA, MODELS, SESSIONS, RECORDINGS, IMAGES, TEMP, HF_CACHE):
     p.mkdir(parents=True, exist_ok=True)
+
+
+ORIG_ENV = dict(os.environ)     # für fremde Programme wie Strata – die sollen ihren eigenen Temp nutzen
+
+
+def pin_storage_env():
+    """Alle Bibliotheken zwingen, im Programmordner zu speichern – nichts im Benutzerordner oder %TEMP%."""
+    env = {
+        "HF_HOME": HF_CACHE, "HF_HUB_CACHE": HF_CACHE / "hub", "HF_XET_CACHE": HF_CACHE / "xet",
+        "HUGGINGFACE_HUB_CACHE": HF_CACHE / "hub", "XDG_CACHE_HOME": DATA / "cache",
+        "GRADIO_TEMP_DIR": TEMP / "gradio", "TEMP": TEMP, "TMP": TEMP, "TMPDIR": TEMP,
+        "PIP_CACHE_DIR": DATA / "cache" / "pip", "UV_CACHE_DIR": DATA / "cache" / "uv",
+    }
+    for k, v in env.items():
+        Path(v).mkdir(parents=True, exist_ok=True)
+        os.environ[k] = str(v)
+    import tempfile
+    tempfile.tempdir = str(TEMP)
 
 IGNORIEREN = "(ignorieren)"
 UNBEKANNT = "Unbekannt"

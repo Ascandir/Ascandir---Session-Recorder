@@ -6,8 +6,9 @@ from pathlib import Path
 from .config import MODELS
 
 _B = "https://github.com/k2-fsa/sherpa-onnx/releases/download"
-SEGMENTATION = MODELS / "sherpa-onnx-pyannote-segmentation-3-0" / "model.onnx"
-EMBEDDING = MODELS / "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx"
+VOICE_DIR = MODELS / "stimmerkennung"
+SEGMENTATION = VOICE_DIR / "sherpa-onnx-pyannote-segmentation-3-0" / "model.onnx"
+EMBEDDING = VOICE_DIR / "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx"
 WHISPER_DIR = MODELS / "whisper"
 
 
@@ -19,11 +20,12 @@ def _download(url, dest: Path):
 
 
 def ensure_diarization_models():
+    VOICE_DIR.mkdir(parents=True, exist_ok=True)
     if not SEGMENTATION.exists():
-        arc = MODELS / "seg.tar.bz2"
+        arc = VOICE_DIR / "seg.tar.bz2"
         _download(f"{_B}/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2", arc)
         with tarfile.open(arc) as t:
-            t.extractall(MODELS)
+            t.extractall(VOICE_DIR)
         arc.unlink()
     if not EMBEDDING.exists():
         _download(f"{_B}/speaker-recongition-models/{EMBEDDING.name}", EMBEDDING)

@@ -315,6 +315,39 @@ def _ki_status(mode, st):
     return f"Es wird die KI unter `{st['llm_url']}` genutzt. Sie muss selbst gestartet sein."
 
 
+def do_storage_refresh():
+    from . import storage
+    return storage.overview()
+
+
+def do_clear_temp():
+    from . import storage
+    storage.clear_temp()
+    return storage.overview(), "🧹 Temporäre Dateien und Download-Zwischenspeicher geleert."
+
+
+def do_remove_whisper():
+    from . import storage
+    freed = storage.remove_unused_whisper()
+    return storage.overview(), (f"🗑️ {storage._fmt(freed)} frei geworden." if freed
+                                else "Es gibt keine ungenutzten Spracherkennungs-Modelle.")
+
+
+def do_remove_builtin():
+    from . import storage
+    if L.resolved_mode() == "Eingebaute KI":
+        raise gr.Error("Die eingebaute KI ist gerade ausgewählt. Stell unter „Welche KI?“ erst auf Strata um.")
+    freed = storage.remove_builtin_ki()
+    return storage.overview(), (f"🗑️ Eingebaute KI gelöscht – {storage._fmt(freed)} frei." if freed
+                                else "Die eingebaute KI war nicht installiert.")
+
+
+def do_open_root():
+    if sys.platform == "win32":
+        os.startfile(str(C.ROOT))
+    return f"📂 `{C.ROOT}`"
+
+
 def do_debug():
     try:
         path, text = save_report()
@@ -676,6 +709,18 @@ def build():
                 url = gr.Textbox(label="Adresse der KI", value=st["llm_url"],
                                  info="Strata: http://127.0.0.1:8080/v1")
                 model = gr.Textbox(label="Modellname (leer = automatisch)", value=st["llm_model"])
+            gr.Markdown("### 💾 Speicher")
+            gr.Markdown("Alle Modelle, Downloads und Zwischendateien liegen im Programmordner – nichts im "
+                        "Benutzerordner oder im Windows-Temp.")
+            from . import storage as _storage
+            sto_md = gr.Markdown(_storage.overview())
+            with gr.Row():
+                sto_refresh = gr.Button("🔄 Neu berechnen")
+                sto_temp = gr.Button("🧹 Temporäre Dateien leeren")
+                sto_whisper = gr.Button("🗑️ Ungenutzte Spracherkennung löschen")
+                sto_builtin = gr.Button("🗑️ Eingebaute KI löschen")
+                sto_open = gr.Button("📂 Programmordner öffnen")
+            sto_status = gr.Markdown()
             gr.Markdown("### Weitere Einstellungen")
             wm = gr.Dropdown(["large-v3-turbo", "large-v3", "medium", "small"],
                              value=st["whisper_model"], label="Spracherkennung",
@@ -761,6 +806,11 @@ def build():
         strata_find.click(do_find_strata, None, [ki_md, strata_preset_dd, presets_raw])
         strata_preset_dd.input(save_preset, strata_preset_dd, ki_md)
         dbg_btn.click(do_debug, None, [dbg_md, dbg_text, dbg_file])
+        sto_refresh.click(do_storage_refresh, None, sto_md)
+        sto_temp.click(do_clear_temp, None, [sto_md, sto_status])
+        sto_whisper.click(do_remove_whisper, None, [sto_md, sto_status])
+        sto_builtin.click(do_remove_builtin, None, [sto_md, sto_status])
+        sto_open.click(do_open_root, None, sto_status)
         ev_test = test.click(test_llm, None, s_status, concurrency_limit=None)
         test_stop.click(do_cancel, None, s_status, cancels=[ev_test])
         vdel.click(delete_voice, vlist, [vlist, v_status])
@@ -799,6 +849,8 @@ def launch():
             except Exception:
                 webbrowser.open(url)
             return
+    from . import storage
+    storage.clean_temp()          # nur hier: wir sind der einzige laufende Server
     app, theme = build()
     js = ("() => { document.body.classList.add('dark'); }" if dark
           else "() => { document.body.classList.remove('dark'); }")

@@ -61,13 +61,18 @@ def strata_cli():
     return shutil.which("strata")
 
 
+def self_is_strata(exe):
+    return "strata" in str(exe).lower()
+
+
 def run_strata(args, timeout=60):
     exe = strata_cli()
     if not exe:
         return 127, "strata-Befehl nicht gefunden"
     try:
         r = subprocess.run([exe] + args, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                           timeout=timeout, creationflags=NOWIN, stdin=subprocess.DEVNULL)
+                           timeout=timeout, creationflags=NOWIN, stdin=subprocess.DEVNULL,
+                           env=C.ORIG_ENV if self_is_strata(exe) else None)
         return r.returncode, (r.stdout or "") + (r.stderr or "")
     except subprocess.TimeoutExpired:
         return 124, "Zeitüberschreitung"
@@ -425,6 +430,8 @@ class KI:
         logf.write(f"\n=== {time.ctime()} Start: {cmd}\n")
         logf.flush()
         kw = dict(stdout=logf, stderr=logf, cwd=cwd)
+        if self.mode == "Strata":
+            kw["env"] = C.ORIG_ENV           # Strata nutzt seine eigenen Ordner
         if kind in ("cli", "shell", "server"):
             kw["creationflags"] = NOWIN
             kw["stdin"] = subprocess.PIPE

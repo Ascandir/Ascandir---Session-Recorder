@@ -1,5 +1,5 @@
-- **Strata startet jetzt richtig:** über dein gespeichertes Preset ohne Fenster (`strata launch --preset … --no-tui`), mit Strata-Schlüssel, und wird danach mit `strata launch --stop` beendet
-- Preset-Auswahl unter ⚙️ → Lokale KI → Strata-Einstellungen („🔍 Strata & Presets suchen“)
-- **Neues Layout** im Tab „Session auswerten“: ① Aufnahme → ② Auswerten → ③ Ergebnis (Chronik / Comic-Vorlage / Abschrift als Tabs); der Fortschritt steht in einer eigenen Statuskarte
-- Debug-Log landet nicht mehr auf dem Desktop, sondern im Programmordner (`daten\debug`) und kann direkt heruntergeladen werden
-- Anzahl der Stimmen: Standard sind jetzt alle aus deiner Gruppe (verhindert „93 Stimmen“ bei automatischer Erkennung)
+- **Alles im Programmordner:** Modelle, Download-Zwischenspeicher und alle temporären Dateien liegen jetzt im Ordner der Software (`daten\modelle`, `daten\temp`) – nichts mehr im Benutzerordner oder im Windows-Temp
+- Neue Ordnerstruktur: `daten\modelle\whisper` (Spracherkennung), `daten\modelle\stimmerkennung`, `daten\modelle\lokale-ki` (eingebaute KI) – vorhandene Modelle werden automatisch verschoben
+- **💾 Speicher** unter ⚙️ Einstellungen: Übersicht, wie viel Platz was braucht, plus Aufräumen (Temp leeren, ungenutzte Spracherkennung oder eingebaute KI löschen, Ordner öffnen)
+- Temporäre Dateien werden bei jedem Start automatisch geleert
+- Strata bekommt weiterhin seine eigenen Ordner und schreibt nicht in den SessionRecorder-Ordner

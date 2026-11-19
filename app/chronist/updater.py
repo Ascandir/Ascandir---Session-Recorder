@@ -59,7 +59,7 @@ def install(progress=lambda f, m: None):
     info = check()
     if not info.get("neu"):
         raise RuntimeError("Kein Update verfügbar.")
-    dest = Path(tempfile.gettempdir()) / f"Ascandir-SessionRecorder-Setup-{info['version']}.exe"
+    dest = C.TEMP / f"Ascandir-SessionRecorder-Setup-{info['version']}.exe"
     req = urllib.request.Request(info["url"], headers={"User-Agent": "Ascandir-SessionRecorder"})
     with urllib.request.urlopen(req, timeout=60) as r, open(dest, "wb") as f:
         total = int(r.headers.get("Content-Length") or 0)

@@ -303,13 +303,16 @@ func Install(o Options, ui UI) error {
 	env := []string{
 		"UV_PYTHON_INSTALL_DIR=" + filepath.Join(root, "python"),
 		"UV_CACHE_DIR=" + filepath.Join(root, "cache"),
+		"PIP_CACHE_DIR=" + filepath.Join(root, "cache", "pip"),
+		"TEMP=" + filepath.Join(root, "daten", "temp"),
+		"TMP=" + filepath.Join(root, "daten", "temp"),
 		"UV_NO_PROGRESS=1",
 		"PYTHONUTF8=1",
 		"PYTHONIOENCODING=utf-8",
 	}
 
 	ui.Step(1, total, "Programmdateien werden kopiert …")
-	if err := os.MkdirAll(root, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "daten", "temp"), 0o755); err != nil {
 		return err
 	}
 	if err := writePayload(root); err != nil {
@@ -332,6 +335,7 @@ func Install(o Options, ui UI) error {
 			return err
 		}
 		runLogged(ui, "", nil, vc, "/install", "/quiet", "/norestart")
+		os.Remove(vc)
 	} else {
 		ui.Log("Visual C++ Laufzeit ist vorhanden.")
 	}

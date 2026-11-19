@@ -9,6 +9,7 @@ os.environ.setdefault("DO_NOT_TRACK", "1")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from chronist import config  # noqa: E402
+config.pin_storage_env()        # vor allen anderen Bibliotheken!
 
 # Ohne Konsolenfenster (pythonw) Ausgaben in eine Logdatei schreiben
 if sys.stdout is None or sys.stderr is None:
@@ -18,6 +19,9 @@ if sys.stdout is None or sys.stderr is None:
 
 from chronist import debuglog  # noqa: E402
 debuglog.setup()
+
+from chronist import storage  # noqa: E402
+storage.migrate_old_layout()
 
 if __name__ == "__main__":
     if "--modelle" in sys.argv:
