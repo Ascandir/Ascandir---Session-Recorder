@@ -57,12 +57,39 @@ def n_spieler():
     return len([s for s in C.group().get("spieler", []) if s.get("name")])
 
 
+def _open_path(path):
+    """Ordner im Windows-Explorer öffnen (mit Ausweichweg)."""
+    if sys.platform != "win32":
+        return
+    try:
+        os.startfile(str(path))
+    except Exception:
+        import subprocess
+        subprocess.Popen(["explorer", str(path)])
+
+
 def open_folder(state):
+    target, hint = None, ""
     if state and state.get("ordner"):
-        if sys.platform == "win32":
-            os.startfile(state["ordner"])
-        return f"Ordner: `{state['ordner']}`"
-    return ""
+        p = Path(state["ordner"])
+        if p.exists():
+            target = p
+        else:   # z. B. durch den Umzug in Gruppenordner verschoben
+            cand = C.sessions_dir(state.get("gruppe")) / p.name if state.get("gruppe") in C.list_groups() \
+                else C.sessions_dir() / p.name
+            if cand.exists():
+                target = cand
+                state["ordner"] = str(cand)
+    if target is None:
+        target = C.sessions_dir()
+        hint = " (gerade ist keine Session geöffnet – das ist der Session-Ordner der Gruppe)"
+    try:
+        _open_path(target)
+    except Exception as e:
+        log.exception("Ordner öffnen fehlgeschlagen")
+        raise gr.Error(f"Ordner konnte nicht geöffnet werden: {e}")
+    log.info("Ordner geöffnet: %s", target)
+    return f"📂 Geöffnet: `{target}`{hint}"
 
 
 def _voice_updates(state):
@@ -457,8 +484,7 @@ def do_remove_builtin():
 
 
 def do_open_root():
-    if sys.platform == "win32":
-        os.startfile(str(C.ROOT))
+    _open_path(C.ROOT)
     return f"📂 `{C.ROOT}`"
 
 

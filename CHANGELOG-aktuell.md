@@ -1,5 +1,2 @@
-- **Mehrere Gruppen:** anlegen, benennen, umbenennen, löschen (Tab 👥 Gruppe). Jede Gruppe hat eigene Mitspieler, eigenen DM, eigene gelernte Stimmen und eigene Bilder
-- **Gruppe schon bei der Aufnahme wählen:** Aufnahmen landen in `Aufnahmen\<Gruppe>`, Sessions in `Sessions\<Gruppe>` – getrennt nach Gruppen. Beim Umbenennen werden die Ordner mit umbenannt
-- Deine bisherige Runde samt Aufnahmen, Sessions, Stimmen und Bildern wird automatisch zur Gruppe „Meine Runde“ (umbenennbar)
-- **Charakter-Karten mit Bild & Aussehen** – jetzt auch für deinen eigenen Charakter; lange Beschreibungen in großen Textfeldern statt in einer Tabellenzelle
-- Löschen einer Gruppe fragt nach und behält Aufnahmen & Sessions
+- „📂 Session-Ordner öffnen“ funktioniert wieder: öffnet die geöffnete Session – oder, wenn keine offen ist, den Session-Ordner der aktiven Gruppe – und findet auch Sessions, die beim Gruppen-Update umgezogen sind
+- Der Knopf zeigt jetzt immer an, welcher Ordner geöffnet wurde
