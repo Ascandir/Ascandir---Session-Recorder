@@ -1,3 +1,3 @@
-- Nach **Weiter ▶** erscheint der Fortschritt jetzt direkt unter dem Knopf (nicht mehr oben bei „Auswerten“)
-- Auch „🔄 Stimmen neu trennen“ zeigt seinen Fortschritt direkt beim Knopf
-- Ist die Chronik fertig, springt die Seite automatisch zum Ergebnis
+- **Chronik und Comic-Vorlage brechen nicht mehr mittendrin ab:** Stößt die KI an ihre Längengrenze, lässt das Tool sie genau an der Stelle weiterschreiben, bis der Text fertig ist
+- „Nachdenken“ des Modells wird für die Chronik abgeschaltet, damit die volle Länge in den eigentlichen Text geht
+- Mehr Platz für Chronik und Comic-Vorlage

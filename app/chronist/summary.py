@@ -5,6 +5,7 @@ from pathlib import Path
 from openai import OpenAI
 
 from . import config as C
+from .debuglog import log
 
 SYSTEM = ("Du bist der Chronist einer Dungeons-&-Dragons-Gruppe. Du schreibst auf Deutsch, "
           "lebendig, aber sachlich korrekt. Du erfindest nichts dazu, was nicht in der Vorlage steht.")
@@ -25,16 +26,46 @@ def _model(cl, st):
     return ms[0].id
 
 
-def _chat(cl, model, prompt, max_tokens=2500):
-    from .llm import resolved_mode
-    if resolved_mode() == "Eingebaute KI":
-        prompt = prompt + "\n\n/no_think"      # Qwen3: ohne langes Nachdenken antworten
-    r = cl.chat.completions.create(
-        model=model, temperature=0.4, max_tokens=max_tokens,
-        messages=[{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}])
-    txt = r.choices[0].message.content or ""
-    txt = re.sub(r"<think>.*?</think>", "", txt, flags=re.S)
-    return txt.strip()
+_NO_THINK = {"ok": True}      # merkt sich, ob der Server den "Nicht nachdenken"-Schalter versteht
+WEITER = ("Deine Antwort wurde wegen der Länge mitten im Text abgeschnitten. Schreib GENAU an der Stelle "
+          "weiter, an der du aufgehört hast – ohne Wiederholung, ohne Einleitung, ohne Kommentar.")
+
+
+def _create(cl, model, msgs, max_tokens):
+    kw = dict(model=model, temperature=0.4, max_tokens=max_tokens, messages=msgs)
+    if _NO_THINK["ok"]:
+        try:   # Qwen & Co.: kein langes Nachdenken – die volle Länge geht in den eigentlichen Text
+            return cl.chat.completions.create(**kw, extra_body={"chat_template_kwargs": {"enable_thinking": False}})
+        except Exception as e:
+            if "400" not in str(e) and "422" not in str(e):
+                raise
+            _NO_THINK["ok"] = False
+            log.info("Server kennt enable_thinking nicht – ohne Schalter weiter")
+    return cl.chat.completions.create(**kw)
+
+
+def _chat(cl, model, prompt, max_tokens=4000, max_rounds=6):
+    """Fragt die KI und lässt sie weiterschreiben, falls die Antwort wegen der Länge abbricht."""
+    msgs = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt + "\n\n/no_think"}]
+    out = ""
+    for rnd in range(max_rounds):
+        r = _create(cl, model, msgs, max_tokens)
+        ch = r.choices[0]
+        txt = re.sub(r"<think>.*?</think>", "", ch.message.content or "", flags=re.S)
+        txt = re.sub(r"^\s*<think>.*", "", txt, flags=re.S) if "<think>" in txt else txt   # unfertiges Nachdenken
+        if not out:
+            txt = txt.lstrip()
+        out += txt
+        if ch.finish_reason != "length":
+            break
+        log.info("Antwort abgeschnitten (Runde %s, %s Zeichen) – fordere Fortsetzung an", rnd + 1, len(out))
+        if not txt.strip():
+            max_tokens = int(max_tokens * 1.5)      # nur nachgedacht, nichts geschrieben → mehr Platz
+            continue
+        msgs = msgs[:2] + [{"role": "assistant", "content": out}, {"role": "user", "content": WEITER}]
+    else:
+        log.warning("Antwort nach %s Runden immer noch nicht fertig", max_rounds)
+    return out.strip()
 
 
 def ask(url, prompt, max_tokens=500):
@@ -169,7 +200,7 @@ def summarize(state, url, progress=lambda f, m: None):
         notes = merged
     (folder / "notizen.md").write_text("\n\n---\n\n".join(notes), encoding="utf-8")
     progress(0.88, "Chronik wird geschrieben ...")
-    final = _chat(cl, model, FINAL.format(gruppe=g, titel=state["titel"], text="\n\n".join(notes)), 4000)
+    final = _chat(cl, model, FINAL.format(gruppe=g, titel=state["titel"], text="\n\n".join(notes)), 6000)
     (folder / "zusammenfassung.md").write_text(final, encoding="utf-8")
     progress(1.0, "Fertig.")
     return final
@@ -184,7 +215,7 @@ def comic(state, url, progress=lambda f, m: None):
     cl = _client(url)
     progress(0.1, "Comic-Vorlage wird geschrieben ...")
     out = _chat(cl, _model(cl, st), COMIC.format(gruppe=_gruppe_text(C.group()),
-                                                 text=zf.read_text(encoding="utf-8")), 4000)
+                                                 text=zf.read_text(encoding="utf-8")), 6000)
     (folder / "comic_vorlage.md").write_text(out, encoding="utf-8")
     progress(1.0, "Fertig.")
     return out
