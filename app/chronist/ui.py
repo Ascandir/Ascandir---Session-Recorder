@@ -16,11 +16,16 @@ from . import llm as L
 from .debuglog import log, save_report
 
 MAX_STIMMEN = 12
+SCROLL_RESULT = "() => { const e = document.getElementById('ergebnis'); if (e) e.scrollIntoView({behavior: 'smooth'}); }"
+SCROLL_IF_DONE = ("() => { const box = [...document.querySelectorAll('.status-card')][0]; "
+                  "if (box && box.innerText.includes('Fertig!')) { const e = document.getElementById('ergebnis'); "
+                  "if (e) e.scrollIntoView({behavior: 'smooth'}); } }")
 CSS = """
 footer {display: none !important;}
 .status-card {border-left: 4px solid #f2a93b; background: rgba(242,169,59,.08);
               padding: 14px 18px !important; border-radius: 8px; min-height: 64px;}
 .result-card {padding: 6px 4px; min-height: 120px;}
+.status-small {min-height: 0 !important;}
 h4 {margin-top: 18px !important; color: #f2a93b;}
 """
 MAX_BILDER = 10
@@ -167,7 +172,7 @@ def do_resplit(state, n, progress=gr.Progress()):
         raise gr.Error(str(e))
     msg = (f"🔄 Neu getrennt: **{len(state['stimmen'])} Stimmen** zum Zuordnen. Mehrere Stimmen dürfen "
            "dieselbe Person sein – ordne einfach jede zu und klick auf **Weiter**.")
-    return [msg, state, gr.update(visible=True)] + _voice_updates(state)
+    return [msg, state, gr.update(visible=True)] + _voice_updates(state) + [msg]
 
 
 @_busy_guard
@@ -176,9 +181,8 @@ def do_finish(state, with_comic, *names, progress=gr.Progress()):
         raise gr.Error("Bitte zuerst analysieren oder eine Session laden.")
     state, text, summ, comic = _finish(state, with_comic, names, lambda f, m: progress(f, desc=m))
     ok = not summ.startswith("⚠️")
-    return (state, text, summ, comic,
-            "✅ Fertig! Hier ist eure Chronik." if ok else "⚠️ Die KI hatte ein Problem – Details unten.",
-            gr.update(visible=not ok))
+    msg = "✅ Fertig! Hier ist eure Chronik." if ok else "⚠️ Die KI hatte ein Problem – Details im Ergebnis-Bereich."
+    return state, text, summ, comic, msg, gr.update(visible=not ok), msg
 
 
 def _finish(state, with_comic, names, pr):
@@ -637,6 +641,7 @@ def build():
                         resplit_n = gr.Number(label="Leute außer dir im Discord", value=n_spieler() or 4,
                                               precision=0, minimum=1, scale=2)
                         resplit_btn = gr.Button("🔄 Stimmen neu trennen", scale=1)
+                    resplit_status = gr.Markdown(elem_classes=["status-card", "status-small"])
                 rows = []
                 for i in range(MAX_STIMMEN):
                     with gr.Group(visible=False) as r:
@@ -646,8 +651,10 @@ def build():
                         dd = gr.Radio(choices=name_choices(), label="Das ist …")
                     rows.append((r, md, au, dd))
                 finish = gr.Button("Weiter ▶", variant="primary", size="lg")
+                finish_status = gr.Markdown("Nach **Weiter** startet das Tool die KI und schreibt die Chronik – "
+                                            "der Fortschritt erscheint hier.", elem_classes=["status-card"])
 
-            gr.Markdown("#### ③ Ergebnis")
+            gr.Markdown("#### ③ Ergebnis", elem_id="ergebnis")
             with gr.Tabs():
                 with gr.Tab("📖 Chronik"):
                     summary = gr.Markdown("*Noch keine Chronik – sie erscheint hier nach der Auswertung.*",
@@ -803,15 +810,18 @@ def build():
         ev_go = go.click(do_analyse, [rec, title, n_andere, vertauscht, with_comic],
                          [status, state, voice_box] + voice_outs + [transcript, summary, comic_md],
                          concurrency_limit=None, show_progress_on=[status])
+        ev_go.then(None, None, None, js=SCROLL_IF_DONE)
         load_btn.click(do_load, alte, [status, state, voice_box] + voice_outs
                        + [summary, transcript, comic_md])
         alte.focus(lambda: gr.update(choices=P.list_sessions()), None, alte)
         ev_fin = finish.click(do_finish, [state, with_comic] + [r[3] for r in rows],
-                              [state, transcript, summary, comic_md, status, voice_box],
-                              concurrency_limit=None, show_progress_on=[status])
+                              [state, transcript, summary, comic_md, status, voice_box, finish_status],
+                              concurrency_limit=None, show_progress_on=[finish_status])
+        ev_fin.then(None, None, None, js=SCROLL_RESULT)
         ev_comic = comic_btn.click(do_comic, state, comic_md, concurrency_limit=None)
-        ev_resplit = resplit_btn.click(do_resplit, [state, resplit_n], [status, state, voice_box] + voice_outs,
-                                       concurrency_limit=None, show_progress_on=[status])
+        ev_resplit = resplit_btn.click(do_resplit, [state, resplit_n],
+                                       [status, state, voice_box] + voice_outs + [resplit_status],
+                                       concurrency_limit=None, show_progress_on=[resplit_status])
         cancel_btn.click(do_cancel, None, status, cancels=[ev_go, ev_fin, ev_comic, ev_resplit])
         folder_btn.click(open_folder, state, folder_md)
         save_g.click(save_group, [ich_name, ich_rolle, dm_dd, table, kontext],

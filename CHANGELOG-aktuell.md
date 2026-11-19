@@ -1,5 +1,3 @@
-- **Deutlich genauere Stimmtrennung:** Die Discord-Spur wird in kurze Stücke zerlegt und jedes Stück einzeln per Stimmabdruck einer Person zugeordnet. Im Test werden jetzt auch leise Spieler:innen gefunden, die kaum sprechen (vorher fehlten zwei von vier Personen, jetzt 99 % korrekt zugeordnet).
-- Das Tool bildet ein paar Stimmen mehr als Mitspieler und legt Kleinstgruppen selbst zusammen – so wird niemand „verschluckt“
-- **Mehrere Stimmen dürfen zur selben Person gehören** (auch bei den automatischen Vorschlägen)
-- Hörproben stammen aus Anfang, Mitte und Ende der Session; Stimmen sind nach Redeanteil sortiert
-- **„🔄 Stimmen neu trennen“** unter „Wer ist wer?“: trennt eine Session neu, **ohne neue Abschrift** – funktioniert auch für bereits analysierte Sessions (Gespeicherte Session öffnen → neu trennen)
+- Nach **Weiter ▶** erscheint der Fortschritt jetzt direkt unter dem Knopf (nicht mehr oben bei „Auswerten“)
+- Auch „🔄 Stimmen neu trennen“ zeigt seinen Fortschritt direkt beim Knopf
+- Ist die Chronik fertig, springt die Seite automatisch zum Ergebnis
