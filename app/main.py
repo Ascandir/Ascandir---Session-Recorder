@@ -22,6 +22,7 @@ debuglog.setup()
 
 from chronist import storage  # noqa: E402
 storage.migrate_old_layout()
+storage.migrate_to_groups()
 
 if __name__ == "__main__":
     if "--modelle" in sys.argv:

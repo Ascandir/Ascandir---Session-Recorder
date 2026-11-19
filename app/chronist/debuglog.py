@@ -89,7 +89,7 @@ def report():
         "----- Einstellungen -----",
         json.dumps(st, ensure_ascii=False, indent=2),
         "",
-        "----- Gruppe -----",
+        f"----- Gruppe (aktiv: {C.active_group()}, alle: {C.list_groups()}) -----",
         json.dumps({k: v for k, v in C.group().items() if k != "kontext"}, ensure_ascii=False, indent=2),
         "",
         "----- Programm-Protokoll (letzte 300 Zeilen) -----",

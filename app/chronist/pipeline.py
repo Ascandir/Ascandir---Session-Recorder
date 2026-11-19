@@ -21,7 +21,7 @@ def _slug(s):
 
 
 def session_dir(title):
-    d = C.SESSIONS / f"{dt.date.today().isoformat()}_{_slug(title)}"
+    d = C.sessions_dir() / f"{dt.date.today().isoformat()}_{_slug(title)}"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -178,7 +178,7 @@ def analyse(path, title, n_andere, spuren_vertauscht=False, progress=lambda f, m
     state = {
         "titel": title or path.stem, "quelle": str(path), "modus": modus,
         "vertauscht": bool(spuren_vertauscht), "n_andere": int(n_andere or 0),
-        "ordner": str(out), "stimmen": stimmen, "woerter": words,
+        "ordner": str(out), "stimmen": stimmen, "woerter": words, "gruppe": C.active_group(),
         "erstellt": dt.datetime.now().isoformat(timespec="seconds"),
     }
     with open(out / "analyse.json", "w", encoding="utf-8") as f:
@@ -226,7 +226,7 @@ def load_state(folder):
 
 
 def list_sessions():
-    return sorted([p.parent.name for p in C.SESSIONS.glob("*/analyse.json")], reverse=True)
+    return sorted([p.parent.name for p in C.sessions_dir().glob("*/analyse.json")], reverse=True)
 
 
 def _fmt(t):
@@ -243,7 +243,7 @@ def build_transcript(state, mapping, lern=True):
             name = mapping.get(v["id"], "")
             if name and name not in (C.IGNORIEREN, C.UNBEKANNT) and v.get("embedding"):
                 D.update_profile(profiles, name, np.asarray(v["embedding"]))
-        C.save("stimmen", profiles)
+        C.save_voices(profiles)
     state["zuordnung"] = mapping
 
     def label(spk):

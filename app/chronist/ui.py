@@ -34,7 +34,7 @@ EXT = {".mka", ".mkv", ".mp4", ".mov", ".wav", ".mp3", ".flac", ".m4a", ".ogg", 
 
 # ---------- Hilfen ----------
 def recordings():
-    folder = Path(C.settings()["aufnahme_ordner"])
+    folder = C.recordings_dir()
     if not folder.exists():
         return []
     files = [p for p in folder.iterdir() if p.suffix.lower() in EXT and p.is_file()
@@ -149,7 +149,7 @@ def do_analyse(rec, title, n_andere, vertauscht, with_comic, progress=gr.Progres
 def do_load(name):
     if not name:
         raise gr.Error("Keine Session gewählt.")
-    state = P.load_state(C.SESSIONS / name)
+    state = P.load_state(C.sessions_dir() / name)
     folder = Path(state["ordner"])
     zf = folder / "zusammenfassung.md"
     tr = folder / "transkript.txt"
@@ -223,22 +223,91 @@ def dm_choices(g=None):
 
 
 def save_group(ich_name, ich_rolle, dm, table, kontext):
+    old = C.group()
+    looks = {sp.get("name"): sp.get("aussehen", "") for sp in old.get("spieler", [])}
     rows = []
     for r in (table or []):
-        r = list(r) + ["", "", ""]
+        r = list(r) + ["", ""]
         if str(r[0] or "").strip():
-            rows.append({"name": str(r[0]).strip(), "charakter": str(r[1] or "").strip(),
-                         "aussehen": str(r[2] or "").strip()})
-    old = C.group()
+            n = str(r[0]).strip()
+            rows.append({"name": n, "charakter": str(r[1] or "").strip(), "aussehen": looks.get(n, "")})
     names = {r["name"] for r in rows}
     if dm != C.ICH_ID and dm not in names:
         dm = C.ICH_ID
     g = {"ich_name": ich_name.strip() or "Ich", "ich_rolle": ich_rolle.strip(), "dm": dm,
-         "spieler": rows, "kontext": kontext, "bilder": old.get("bilder", {})}
-    C.save("gruppe", g)
+         "spieler": rows, "kontext": kontext, "bilder": old.get("bilder", {}),
+         "ich_aussehen": old.get("ich_aussehen", "")}
+    C.save_group(g)
     wer = "Du bist der DM." if dm == C.ICH_ID else f"{dm} ist der DM."
     return ([f"Gespeichert: {len(rows)} Spieler. {wer}", gr.update(value=len(rows)),
              gr.update(choices=dm_choices(g), value=dm)] + image_updates())
+
+
+# ---------- Gruppen ----------
+def group_choices():
+    return C.list_groups()
+
+
+def do_create_group(name):
+    if not (name or "").strip():
+        raise gr.Error("Bitte einen Namen für die neue Gruppe eingeben.")
+    try:
+        n = C.create_group(name)
+    except ValueError as e:
+        raise gr.Error(str(e))
+    C.set_active_group(n)
+    log.info("Gruppe angelegt: %s", n)
+    return f"➕ Gruppe **{n}** angelegt – trag jetzt die Mitspieler ein.", ""
+
+
+def do_rename_group(new_name):
+    old = C.active_group()
+    if REC.running:
+        raise gr.Error("Während einer Aufnahme kann die Gruppe nicht umbenannt werden.")
+    try:
+        n = C.rename_group(old, new_name)
+    except ValueError as e:
+        raise gr.Error(str(e))
+    log.info("Gruppe umbenannt: %s → %s", old, n)
+    return f"✏️ **{old}** heißt jetzt **{n}** – auch die Ordner für Aufnahmen und Sessions wurden umbenannt.", ""
+
+
+def do_delete_group(confirmed):
+    if not confirmed:
+        return "Abgebrochen.", gr.update()
+    name = C.active_group()
+    try:
+        C.delete_group(name)
+    except ValueError as e:
+        raise gr.Error(str(e))
+    log.info("Gruppe gelöscht: %s", name)
+    return (f"🗑️ Gruppe **{name}** gelöscht. Ihre Aufnahmen und Sessions liegen weiter in den Ordnern "
+            f"`Aufnahmen\\{name}` und `Sessions\\{name}`."), gr.update()
+
+
+def do_switch_group(name):
+    if name and name in C.list_groups():
+        if REC.running:
+            raise gr.Error("Während einer Aufnahme kann die Gruppe nicht gewechselt werden.")
+        C.set_active_group(name)
+        log.info("Aktive Gruppe: %s", name)
+
+
+def group_refresh(*radio_vals):
+    """Alles, was von der aktiven Gruppe abhängt, neu befüllen."""
+    a = C.active_group()
+    g = C.group()
+    rows = [[x["name"], x.get("charakter", "")] for x in g.get("spieler", [])] or [["", ""]] * 5
+    out = [gr.update(choices=group_choices(), value=a) for _ in range(3)] + [
+           gr.update(choices=recordings(), value=(recordings()[0][1] if recordings() else None)),
+           gr.update(choices=P.list_sessions(), value=None),
+           gr.update(value=n_spieler() or 4), gr.update(value=n_spieler() or 4),
+           g["ich_name"], g["ich_rolle"], gr.update(choices=dm_choices(g), value=g.get("dm", C.ICH_ID)),
+           rows, g.get("kontext", ""), gr.update(choices=list(C.voices()), value=None),
+           f"Gruppe: **{a}** · Aufnahmen landen in `{C.recordings_dir()}`"]
+    names = name_choices()
+    out += [gr.update(choices=names, value=None) for _ in range(MAX_STIMMEN)]
+    return out + image_updates()
 
 
 # ---------- Charakterbilder ----------
@@ -252,16 +321,43 @@ def persons():
     return out[:MAX_BILDER]
 
 
-def image_updates():
+def appearance(name, g=None):
+    g = g or C.group()
+    if name == g.get("ich_name"):
+        return g.get("ich_aussehen", "")
+    return next((sp.get("aussehen", "") for sp in g.get("spieler", []) if sp.get("name") == name), "")
+
+
+def save_look(i, text):
     ps = persons()
-    ups = []
+    if i >= len(ps):
+        return ""
+    name, lab = ps[i]
+    g = C.group()
+    if name == g.get("ich_name"):
+        g["ich_aussehen"] = (text or "").strip()
+    else:
+        for sp in g.get("spieler", []):
+            if sp.get("name") == name:
+                sp["aussehen"] = (text or "").strip()
+    C.save_group(g)
+    return f"Aussehen von {lab} gespeichert."
+
+
+def image_updates():
+    """Updates für alle Charakter-Karten: erst die Bilder, dann die Aussehen-Felder."""
+    ps = persons()
+    g = C.group()
+    imgs, looks = [], []
     for i in range(MAX_BILDER):
         if i < len(ps):
             name, lab = ps[i]
-            ups.append(gr.update(visible=True, label=lab, value=C.image_path(name)))
+            imgs.append(gr.update(visible=True, label=lab, value=C.image_path(name)))
+            looks.append(gr.update(visible=True, label=f"Aussehen – {lab}", value=appearance(name, g)))
         else:
-            ups.append(gr.update(visible=False, value=None))
-    return ups
+            imgs.append(gr.update(visible=False, value=None))
+            looks.append(gr.update(visible=False, value=""))
+    return imgs + looks
 
 
 def save_image(i, path):
@@ -274,17 +370,17 @@ def save_image(i, path):
     if not path:
         old = bilder.pop(name, None)
         if old:
-            (C.IMAGES / old).unlink(missing_ok=True)
-        C.save("gruppe", g)
+            (C.images_dir() / old).unlink(missing_ok=True)
+        C.save_group(g)
         return f"Bild von {lab} entfernt."
     from PIL import Image
     safe = "".join(c if c.isalnum() else "_" for c in name) or "spieler"
     fname = f"{safe}.png"
     img = Image.open(path)
     img.thumbnail((1024, 1024))
-    img.convert("RGBA" if img.mode in ("RGBA", "LA", "P") else "RGB").save(C.IMAGES / fname)
+    img.convert("RGBA" if img.mode in ("RGBA", "LA", "P") else "RGB").save(C.images_dir() / fname)
     bilder[name] = fname
-    C.save("gruppe", g)
+    C.save_group(g)
     return f"Bild von {lab} gespeichert."
 
 
@@ -416,7 +512,7 @@ def delete_voice(name):
     v = C.voices()
     if name in v:
         del v[name]
-        C.save("stimmen", v)
+        C.save_voices(v)
     return gr.update(choices=list(v), value=None), f"Stimmprofil '{name}' gelöscht." if name else ""
 
 
@@ -581,6 +677,12 @@ def build():
           with gr.Tab("🎙️ Aufnahme", id="aufnahme"):
             gr.Markdown("Nimmt **nur Ton** auf: dein Mikro und den Ton von Discord – auf getrennten Spuren. "
                         "Keine Kamera, kein Bildschirm, keine Foundry-Musik. Braucht kaum Leistung.")
+            with gr.Row():
+                rec_group = gr.Dropdown(group_choices(), value=C.active_group(), label="Gruppe",
+                                        info="Die Aufnahme landet im Ordner dieser Gruppe", scale=5,
+                                        interactive=not REC.running)
+            rec_group_md = gr.Markdown(f"Gruppe: **{C.active_group()}** · Aufnahmen landen in "
+                                       f"`{C.recordings_dir()}`")
             mics = mic_choices()
             saved = st.get("mikro", "")
             mic_val = next((v for _, v in mics if str(v) == str(saved)), mics[0][1] if mics else None)
@@ -604,6 +706,7 @@ def build():
           with gr.Tab("📜 Session auswerten", id="auswerten"):
             gr.Markdown("#### ① Aufnahme wählen")
             with gr.Group():
+                ev_group = gr.Dropdown(group_choices(), value=C.active_group(), label="Gruppe")
                 with gr.Row():
                     rec = gr.Dropdown(choices=recordings(), label="Aufnahme (neueste zuerst)",
                                       allow_custom_value=True, scale=5)
@@ -670,8 +773,19 @@ def build():
                 folder_md = gr.Markdown()
 
           with gr.Tab("👥 Gruppe", id="gruppe"):
-            gr.Markdown("Trag hier eure Runde ein. Die Charakternamen helfen auch der "
-                        "Spracherkennung bei der Schreibweise.")
+            with gr.Group():
+                with gr.Row():
+                    grp_sel = gr.Dropdown(group_choices(), value=C.active_group(), label="Gruppe", scale=3)
+                    new_name = gr.Textbox(label="Neue Gruppe", placeholder="Name, z. B. Montagsrunde", scale=2)
+                    new_btn = gr.Button("➕ Anlegen", scale=1)
+                with gr.Row():
+                    ren_name = gr.Textbox(label="Gruppe umbenennen", placeholder="neuer Name", scale=3)
+                    ren_btn = gr.Button("✏️ Umbenennen", scale=1)
+                    del_btn = gr.Button("🗑️ Gruppe löschen", variant="stop", scale=1)
+            grp_status = gr.Markdown()
+            gr.Markdown("Trag hier die Runde ein. Die Charakternamen helfen auch der "
+                        "Spracherkennung bei der Schreibweise. Jede Gruppe hat eigene Mitspieler, "
+                        "eigene gelernte Stimmen und eigene Ordner.")
             with gr.Row():
                 ich_name = gr.Textbox(label="Dein Name", value=grp["ich_name"])
                 ich_rolle = gr.Textbox(label="Dein Charakter", value=grp["ich_rolle"],
@@ -680,28 +794,30 @@ def build():
                                     label="Wer ist der Spielleiter (DM)?",
                                     info="Seine Zeilen werden als Erzählung & NPCs behandelt")
             table = gr.Dataframe(
-                headers=["Spieler", "Charakter (beim DM leer lassen)", "Aussehen (für den Comic)"],
-                datatype=["str", "str", "str"], type="array", interactive=True,
-                value=[[s["name"], s.get("charakter", ""), s.get("aussehen", "")]
-                       for s in grp["spieler"]] or [["", "", ""]] * 5,
-                column_count=(3, "fixed"), row_count=(5, "dynamic"))
+                headers=["Spieler", "Charakter (beim DM leer lassen)"],
+                datatype=["str", "str"], type="array", interactive=True,
+                value=[[s["name"], s.get("charakter", "")] for s in grp["spieler"]] or [["", ""]] * 5,
+                column_count=(2, "fixed"), row_count=(5, "dynamic"))
             kontext = gr.Textbox(label="Kampagne & wichtige Namen (NPCs, Orte, Götter …)",
                                  lines=4, value=grp["kontext"])
             save_g = gr.Button("Speichern", variant="primary")
             g_status = gr.Markdown()
-            gr.Markdown("### 🖼️ Charakterbilder\nZieh ein Bild auf das Feld, klick drauf oder füg es mit "
-                        "Strg+V ein. Wird sofort gespeichert und später für den Comic verwendet. "
-                        "Neue Spieler erscheinen hier nach dem Speichern.")
-            img_slots = []
+            gr.Markdown("### 🖼️ Charaktere: Bild & Aussehen\nFür den Comic. Bild hineinziehen, anklicken oder mit "
+                        "Strg+V einfügen; das Aussehen einfach ins Feld schreiben oder hineinkopieren. Beides wird "
+                        "sofort gespeichert. Neue Spieler erscheinen hier nach dem Speichern oben.")
+            img_slots, look_boxes = [], []
             ps = persons()
-            for row_start in range(0, MAX_BILDER, 5):
-                with gr.Row():
-                    for i in range(row_start, row_start + 5):
-                        vis = i < len(ps)
-                        img_slots.append(gr.Image(
-                            type="filepath", sources=["upload", "clipboard"], height=230,
-                            label=ps[i][1] if vis else "", visible=vis,
-                            value=C.image_path(ps[i][0]) if vis else None))
+            for i in range(MAX_BILDER):
+                vis = i < len(ps)
+                with gr.Row(equal_height=True):
+                    img_slots.append(gr.Image(
+                        type="filepath", sources=["upload", "clipboard"], height=240, scale=1, min_width=200,
+                        label=ps[i][1] if vis else "", visible=vis,
+                        value=C.image_path(ps[i][0]) if vis else None))
+                    look_boxes.append(gr.Textbox(
+                        label=f"Aussehen – {ps[i][1]}" if vis else "Aussehen", lines=9, max_lines=30, scale=3,
+                        visible=vis, value=appearance(ps[i][0]) if vis else "",
+                        placeholder="z. B. Größe, Volk, Haare, Augen, Kleidung, Ausrüstung, Besonderheiten …"))
             img_status = gr.Markdown()
 
           with gr.Tab("⚙️ Einstellungen", id="einstellungen"):
@@ -774,11 +890,24 @@ def build():
 
         # ---------- Verdrahtung ----------
         mic_ref.click(lambda: gr.update(choices=mic_choices()), None, mic)
-        rec_start.click(do_rec_start, [mic, sess_name], [rec_md, rec_start, rec_stop, timer, sess_name])
+        rec_start.click(do_rec_start, [mic, sess_name], [rec_md, rec_start, rec_stop, timer, sess_name]).then(
+            lambda: gr.update(interactive=not REC.running), None, rec_group)
         rec_stop.click(do_rec_stop, None, [rec_md, rec_start, rec_stop, timer, rec, title, sess_name]).then(
+            lambda: gr.update(interactive=True), None, rec_group).then(
             lambda: gr.Tabs(selected="auswerten"), None, tabs)
         timer.tick(rec_status, None, rec_md)
         quit_btn.click(do_quit, None, quit_md)
+
+        G_OUTS = [rec_group, ev_group, grp_sel, rec, alte, n_andere, resplit_n, ich_name, ich_rolle, dm_dd,
+                  table, kontext, vlist, rec_group_md] + [r[3] for r in rows] + img_slots + look_boxes
+        for sel in (rec_group, ev_group, grp_sel):
+            sel.input(do_switch_group, sel, None).then(group_refresh, None, G_OUTS)
+        new_btn.click(do_create_group, new_name, [grp_status, new_name]).then(group_refresh, None, G_OUTS)
+        ren_btn.click(do_rename_group, ren_name, [grp_status, ren_name]).then(group_refresh, None, G_OUTS)
+        del_btn.click(do_delete_group, del_btn, [grp_status, del_btn],
+                      js="(x) => confirm('Diese Gruppe wirklich löschen? Mitspieler, gelernte Stimmen und Bilder "
+                         "der Gruppe werden entfernt – Aufnahmen und Sessions bleiben erhalten.')"
+                      ).then(group_refresh, None, G_OUTS)
         upd_btn.click(do_check_update, None, [upd_md, upd_go])
         upd_go.click(do_update, None, [upd_md, upd_go])
 
@@ -793,8 +922,7 @@ def build():
 
         def on_load():
             g = C.group()
-            rows = [[x["name"], x.get("charakter", ""), x.get("aussehen", "")]
-                    for x in g.get("spieler", [])] or [["", "", ""]] * 5
+            rows = [[x["name"], x.get("charakter", "")] for x in g.get("spieler", [])] or [["", ""]] * 5
             return ([g["ich_name"], g["ich_rolle"],
                      gr.update(choices=dm_choices(g), value=g.get("dm", C.ICH_ID)),
                      rows, g.get("kontext", ""),
@@ -804,7 +932,8 @@ def build():
                      gr.update(value=getattr(REC, "session_name", "") if REC.running else "",
                                interactive=not REC.running)] + image_updates())
         app.load(on_load, None, [ich_name, ich_rolle, dm_dd, table, kontext, rec, rec_md,
-                                 rec_start, rec_stop, timer, sess_name] + img_slots)
+                                 rec_start, rec_stop, timer, sess_name] + img_slots + look_boxes).then(
+            group_refresh, None, G_OUTS).then(lambda: gr.update(interactive=not REC.running), None, rec_group)
         voice_outs = [x for r in rows for x in r]
         refresh.click(lambda: gr.update(choices=recordings()), None, rec)
         ev_go = go.click(do_analyse, [rec, title, n_andere, vertauscht, with_comic],
@@ -825,12 +954,14 @@ def build():
         cancel_btn.click(do_cancel, None, status, cancels=[ev_go, ev_fin, ev_comic, ev_resplit])
         folder_btn.click(open_folder, state, folder_md)
         save_g.click(save_group, [ich_name, ich_rolle, dm_dd, table, kontext],
-                     [g_status, n_andere, dm_dd] + img_slots).then(
+                     [g_status, n_andere, dm_dd] + img_slots + look_boxes).then(
             lambda *vals: [gr.update(choices=name_choices(), value=v if v in name_choices() else None)
                            for v in vals], [r[3] for r in rows], [r[3] for r in rows])
         for i, slot in enumerate(img_slots):
             slot.upload(lambda p, i=i: save_image(i, p), slot, img_status)
             slot.clear(lambda i=i: save_image(i, None), None, img_status)
+        for i, box in enumerate(look_boxes):
+            box.blur(lambda t, i=i: save_look(i, t), box, img_status)
         save_s.click(save_settings, [url, model, wm, ordner, schwelle, design, upd_start,
                                     ki_mode, strata_cmd, strata_stop, strata_wait], [s_status, ki_md])
         ki_mode.change(lambda m: (C.save("einstellungen", {**C.settings(), "ki_modus": m}), ki_status())[1],
@@ -892,7 +1023,8 @@ def launch():
                        prevent_thread_lock=True,
                        theme=theme, js=js, show_error=True, quiet=True,
                        css=CSS,
-                       allowed_paths=[str(C.SESSIONS), str(C.RECORDINGS), str(C.IMAGES), str(C.DATA)])
+                       allowed_paths=[str(C.SESSIONS), str(C.RECORDINGS), str(C.DATA),
+                                      str(Path(C.settings().get("aufnahme_ordner") or C.RECORDINGS))])
     try:
         _open_window(url, own_server=True)
     except Exception as e:      # kein WebView2 o. Ä. → Browser als Notlösung

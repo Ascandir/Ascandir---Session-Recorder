@@ -80,7 +80,12 @@ def _gruppe_text(grp):
     if C.is_dm(C.ICH_ID, grp):
         rows = [f"- {ich} ist der Spielleiter (DM): erzählt die Welt und spricht alle NPCs"]
     else:
-        rows = [f"- Spieler {ich} spielt {grp.get('ich_rolle') or '?'}"]
+        z = f"- Spieler {ich} spielt {grp.get('ich_rolle') or '?'}"
+        if grp.get("ich_aussehen"):
+            z += f" (Aussehen: {grp['ich_aussehen']})"
+        if C.image_path(ich, grp):
+            z += " [Referenzbild vorhanden]"
+        rows = [z]
     for s in grp.get("spieler", []):
         if not s.get("name"):
             continue

@@ -46,6 +46,41 @@ def migrate_old_layout():
         log.exception("Verschieben der alten Modelle fehlgeschlagen")
 
 
+def migrate_to_groups():
+    """Aufnahmen/Sessions aus der Zeit vor den Gruppen in den Ordner der ersten Gruppe verschieben."""
+    first = C.list_groups()[0]
+    rec_root = Path(C.settings().get("aufnahme_ordner") or C.RECORDINGS)
+    moved = 0
+    if rec_root.exists():
+        target = rec_root / first
+        for f in list(rec_root.iterdir()):
+            if f.is_file() and f.suffix.lower() in (".mka", ".mkv", ".mp3", ".wav", ".flac", ".m4a"):
+                target.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(f), str(target / f.name))
+                moved += 1
+    starget = C.SESSIONS / first
+    for d in list(C.SESSIONS.iterdir()):
+        if d.is_dir() and (d / "analyse.json").exists():
+            starget.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(d), str(starget / d.name))
+            moved += 1
+    if moved:
+        C._fix_session_paths(starget, C.SESSIONS, starget)
+        # Pfad zur Original-Aufnahme anpassen (lag vorher direkt im Aufnahmeordner)
+        for f in starget.glob("*/analyse.json"):
+            try:
+                import json
+                stt = json.loads(f.read_text(encoding="utf-8"))
+                q = Path(stt.get("quelle", ""))
+                if q.parent == rec_root and (rec_root / first / q.name).exists():
+                    stt["quelle"] = str(rec_root / first / q.name)
+                    stt.setdefault("gruppe", first)
+                    f.write_text(json.dumps(stt, ensure_ascii=False), encoding="utf-8")
+            except Exception:
+                pass
+        log.info("%s alte Aufnahmen/Sessions in die Gruppe „%s“ verschoben", moved, first)
+
+
 def clean_temp():
     """Zwischendateien vom letzten Mal löschen (beim Start)."""
     n = 0
@@ -98,8 +133,8 @@ def overview():
         ("Eingebaute KI (Engine + Modell)", _size(L.BUILTIN_DIR)),
         ("Download-Zwischenspeicher", _size(C.HF_CACHE) + _size(C.DATA / "cache")),
         ("Python & Programmteile", _size(root / "venv") + _size(root / "python") + _size(root / "tools")),
-        ("Aufnahmen", _size(C.RECORDINGS)),
-        ("Sessions (Chroniken, Abschriften)", _size(C.SESSIONS)),
+        ("Aufnahmen (alle Gruppen)", _size(Path(C.settings().get("aufnahme_ordner") or C.RECORDINGS))),
+        ("Sessions (alle Gruppen)", _size(C.SESSIONS)),
         ("Temporäre Dateien", _size(C.TEMP)),
         ("Protokolle & Debug", _size(C.DATA / "debug") + sum(_size(p) for p in C.DATA.glob("*.log*"))
          + _size(C.DATA / "log.txt") + _size(C.DATA / "ki-log.txt")),

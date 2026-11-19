@@ -143,8 +143,8 @@ class Recorder:
         import sounddevice as sd
         self.error = ""
         st = C.settings()
-        folder = Path(st["aufnahme_ordner"])
-        folder.mkdir(parents=True, exist_ok=True)
+        folder = C.recordings_dir()
+        self.group = C.active_group()
         stamp = dt.datetime.now().strftime("%Y-%m-%d_%H-%M")
         import re
         safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "", (name or "").strip()).strip(" .")[:80]
