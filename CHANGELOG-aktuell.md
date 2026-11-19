@@ -1,5 +1,5 @@
-- **Alles im Programmordner:** Modelle, Download-Zwischenspeicher und alle temporären Dateien liegen jetzt im Ordner der Software (`daten\modelle`, `daten\temp`) – nichts mehr im Benutzerordner oder im Windows-Temp
-- Neue Ordnerstruktur: `daten\modelle\whisper` (Spracherkennung), `daten\modelle\stimmerkennung`, `daten\modelle\lokale-ki` (eingebaute KI) – vorhandene Modelle werden automatisch verschoben
-- **💾 Speicher** unter ⚙️ Einstellungen: Übersicht, wie viel Platz was braucht, plus Aufräumen (Temp leeren, ungenutzte Spracherkennung oder eingebaute KI löschen, Ordner öffnen)
-- Temporäre Dateien werden bei jedem Start automatisch geleert
-- Strata bekommt weiterhin seine eigenen Ordner und schreibt nicht in den SessionRecorder-Ordner
+- **Deutlich genauere Stimmtrennung:** Die Discord-Spur wird in kurze Stücke zerlegt und jedes Stück einzeln per Stimmabdruck einer Person zugeordnet. Im Test werden jetzt auch leise Spieler:innen gefunden, die kaum sprechen (vorher fehlten zwei von vier Personen, jetzt 99 % korrekt zugeordnet).
+- Das Tool bildet ein paar Stimmen mehr als Mitspieler und legt Kleinstgruppen selbst zusammen – so wird niemand „verschluckt“
+- **Mehrere Stimmen dürfen zur selben Person gehören** (auch bei den automatischen Vorschlägen)
+- Hörproben stammen aus Anfang, Mitte und Ende der Session; Stimmen sind nach Redeanteil sortiert
+- **„🔄 Stimmen neu trennen“** unter „Wer ist wer?“: trennt eine Session neu, **ohne neue Abschrift** – funktioniert auch für bereits analysierte Sessions (Gespeicherte Session öffnen → neu trennen)

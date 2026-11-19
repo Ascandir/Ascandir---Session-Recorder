@@ -57,6 +57,75 @@ def _assign(words, segs, spk_prefix):
     return out
 
 
+EXTRA_STIMMEN = 3          # ein paar Gruppen mehr als Mitspieler, damit niemand "verschluckt" wird
+MIN_SEKUNDEN = 20          # kleinere Gruppen werden der ähnlichsten großen Stimme zugeschlagen
+
+
+def _spread_parts(segs, k, n=4, max_len=5.0):
+    """Hörprobe aus verschiedenen Zeitpunkten (Anfang, Mitte, Ende) statt aus einem Stück."""
+    mine = [(s, e) for s, e, kk in segs if kk == k and e - s >= 1.2]
+    if not mine:
+        mine = [(s, e) for s, e, kk in segs if kk == k]
+    if not mine:
+        return []
+    mine.sort()
+    out = []
+    for i in range(n):
+        chunk = mine[i * len(mine) // n:(i + 1) * len(mine) // n] or mine[-1:]
+        s, e = max(chunk, key=lambda x: x[1] - x[0])
+        if (s, e) not in out:
+            out.append((s, min(e, s + max_len)))
+    return out
+
+
+def _voices(dis, n_spk, out, progress):
+    """Stimmen trennen, Kleinstgruppen zusammenlegen, Stimmabdrücke + Hörproben, Vorschläge."""
+    st = C.settings()
+    n_groups = int(n_spk) + EXTRA_STIMMEN if n_spk else 0
+    segs = D.diarize_fine(dis, n_groups, progress) if n_groups else D.diarize(dis, 0, progress)
+    clusters = sorted({k for _, _, k in segs})
+    log.info("Stimmtrennung: %s Gruppen (angefragt %s), %s Abschnitte", len(clusters), n_groups, len(segs))
+
+    embs = {k: D.embed(dis, D.cluster_parts(segs, k)) for k in clusters}
+    dauer = {k: sum(e - s for s, e, kk in segs if kk == k) for k in clusters}
+
+    # Kleinstgruppen der ähnlichsten großen Gruppe zuschlagen (Grenze wächst mit der Länge der Aufnahme)
+    total = sum(dauer.values()) or 1
+    grenze = max(3.0, min(MIN_SEKUNDEN, 0.015 * total))
+    big = [k for k in clusters if dauer[k] >= grenze and embs[k] is not None]
+    if big:
+        remap = {}
+        for k in clusters:
+            if k in big:
+                continue
+            if embs[k] is None:
+                remap[k] = max(big, key=lambda b: dauer[b])
+            else:
+                remap[k] = max(big, key=lambda b: float(embs[b] @ embs[k]))
+        if remap:
+            log.info("Kleinstgruppen zusammengelegt: %s", remap)
+            segs = [(s, e, remap.get(k, k)) for s, e, k in segs]
+            clusters = big
+            embs = {k: D.embed(dis, D.cluster_parts(segs, k)) for k in clusters}
+            dauer = {k: sum(e - s for s, e, kk in segs if kk == k) for k in clusters}
+
+    # Nach Redeanteil sortieren (wer am meisten spricht, steht oben)
+    clusters.sort(key=lambda k: -dauer[k])
+    for old in out.glob("stimme_*.wav"):
+        old.unlink(missing_ok=True)
+    matches = D.match(embs, C.voices(), float(st["match_schwelle"]))
+    stimmen = []
+    for nr, k in enumerate(clusters, 1):
+        name, sim = matches.get(k, (None, 0.0))
+        clip = A.write_clip(dis, _spread_parts(segs, k), out / f"stimme_{nr}.wav", max_len=16.0)
+        stimmen.append({
+            "id": f"S{k}", "nr": nr, "vorschlag": name or "", "aehnlichkeit": round(sim, 2),
+            "clip": clip, "dauer": round(dauer[k], 1),
+            "embedding": embs[k].tolist() if embs[k] is not None else None,
+        })
+    return segs, stimmen
+
+
 def analyse(path, title, n_andere, spuren_vertauscht=False, progress=lambda f, m: None):
     """Der lange Teil. Speichert alles in analyse.json im Session-Ordner."""
     st = C.settings()
@@ -85,25 +154,11 @@ def analyse(path, title, n_andere, spuren_vertauscht=False, progress=lambda f, m
 
     n_spk = int(n_andere or 0) + (1 if modus == "gemischt" and n_andere else 0)
 
-    # Anteil am Fortschritt grob nach Rechenzeit gewichten
     def sub(a, b, msg):
         return lambda f: progress(a + (b - a) * f, msg)
 
     progress(0.05, "Stimmen werden getrennt ...")
-    segs = D.diarize(dis, n_spk, sub(0.05, 0.25, "Stimmen werden getrennt ..."))
-    clusters = sorted({k for _, _, k in segs})
-    log.info("Stimmtrennung: %s Stimmen, %s Abschnitte", len(clusters), len(segs))
-
-    progress(0.25, "Stimmen werden wiedererkannt ...")
-    profiles = C.voices()
-    embs, info = {}, {}
-    for k in clusters:
-        parts = D.cluster_parts(segs, k)
-        embs[k] = D.embed(dis, parts)
-        clip = A.write_clip(dis, parts[:4], out / f"stimme_{k + 1}.wav")
-        dauer = sum(e - s for s, e, kk in segs if kk == k)
-        info[k] = {"clip": clip, "dauer": round(dauer, 1)}
-    matches = D.match(embs, profiles, float(st["match_schwelle"]))
+    segs, stimmen = _voices(dis, n_spk, out, sub(0.05, 0.25, "Stimmen werden getrennt ..."))
 
     prompt = _prompt(grp)
     words = []
@@ -120,17 +175,9 @@ def analyse(path, title, n_andere, spuren_vertauscht=False, progress=lambda f, m
     words += _assign(dis_w, segs, "S")
     words.sort(key=lambda w: w[0])
 
-    stimmen = []
-    for k in clusters:
-        name, sim = matches.get(k, (None, 0.0))
-        stimmen.append({
-            "id": f"S{k}", "nr": k + 1, "vorschlag": name or "",
-            "aehnlichkeit": round(sim, 2), "clip": info[k]["clip"],
-            "dauer": info[k]["dauer"],
-            "embedding": embs[k].tolist() if embs[k] is not None else None,
-        })
     state = {
         "titel": title or path.stem, "quelle": str(path), "modus": modus,
+        "vertauscht": bool(spuren_vertauscht), "n_andere": int(n_andere or 0),
         "ordner": str(out), "stimmen": stimmen, "woerter": words,
         "erstellt": dt.datetime.now().isoformat(timespec="seconds"),
     }
@@ -138,8 +185,38 @@ def analyse(path, title, n_andere, spuren_vertauscht=False, progress=lambda f, m
         json.dump(state, f, ensure_ascii=False)
     shutil.rmtree(work, ignore_errors=True)
     log.info("Analyse fertig: %s Wörter, Stimmen: %s", len(words),
-             [(v["id"], v["vorschlag"], v["aehnlichkeit"]) for v in stimmen])
+             [(v["id"], v["vorschlag"], v["aehnlichkeit"], v["dauer"]) for v in stimmen])
     progress(1.0, "Fertig analysiert.")
+    return state
+
+
+def resplit(state, n_andere, progress=lambda f, m: None):
+    """Nur die Stimmen neu trennen – ohne neue Abschrift (geht auch bei alten Sessions)."""
+    path = Path(state["quelle"])
+    if not path.exists():
+        raise FileNotFoundError(f"Die Original-Aufnahme fehlt: {path}\nOhne sie geht nur eine komplett neue Analyse.")
+    out = Path(state["ordner"])
+    work = out / "_arbeit"
+    work.mkdir(exist_ok=True)
+    progress(0.02, "Discord-Spur wird gelesen ...")
+    if state.get("modus") == "gemischt":
+        dis_i = 0
+    else:
+        dis_i = 0 if state.get("vertauscht") else 1
+    dis = A.load_wav(A.extract(path, dis_i, work / "discord.wav"))
+    n_spk = int(n_andere or 0) + (1 if state.get("modus") == "gemischt" and n_andere else 0)
+    segs, stimmen = _voices(dis, n_spk, out, lambda f: progress(0.05 + 0.9 * f, "Stimmen werden neu getrennt ..."))
+    mine = [w[:3] for w in state["woerter"] if w[3] != C.ICH_ID]
+    ich = [w for w in state["woerter"] if w[3] == C.ICH_ID]
+    words = ich + _assign(mine, segs, "S")
+    words.sort(key=lambda w: w[0])
+    state.update({"stimmen": stimmen, "woerter": words, "n_andere": int(n_andere or 0)})
+    state.pop("zuordnung", None)
+    with open(out / "analyse.json", "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False)
+    shutil.rmtree(work, ignore_errors=True)
+    log.info("Stimmen neu getrennt: %s", [(v["id"], v["vorschlag"], v["aehnlichkeit"], v["dauer"]) for v in stimmen])
+    progress(1.0, "Fertig.")
     return state
 
 

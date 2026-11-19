@@ -157,6 +157,20 @@ def do_load(name):
 
 
 @_busy_guard
+def do_resplit(state, n, progress=gr.Progress()):
+    if not state:
+        raise gr.Error("Bitte zuerst analysieren oder eine Session öffnen.")
+    try:
+        state = P.resplit(state, n or n_spieler(), progress=lambda f, m: progress(f, desc=m))
+    except Exception as e:
+        log.exception("Neu trennen fehlgeschlagen")
+        raise gr.Error(str(e))
+    msg = (f"🔄 Neu getrennt: **{len(state['stimmen'])} Stimmen** zum Zuordnen. Mehrere Stimmen dürfen "
+           "dieselbe Person sein – ordne einfach jede zu und klick auf **Weiter**.")
+    return [msg, state, gr.update(visible=True)] + _voice_updates(state)
+
+
+@_busy_guard
 def do_finish(state, with_comic, *names, progress=gr.Progress()):
     if not state:
         raise gr.Error("Bitte zuerst analysieren oder eine Session laden.")
@@ -612,9 +626,17 @@ def build():
                                  elem_classes=["status-card"])
 
             with gr.Column(visible=False) as voice_box:
-                gr.Markdown("#### Wer ist wer?\nEinmal zuordnen – danach erkennt das Tool die Stimmen "
-                            "selbst wieder. Musik-Bots o. Ä. auf *(ignorieren)* stellen. Fehlt jemand? "
-                            "Im Tab **Gruppe** eintragen und speichern.")
+                gr.Markdown("#### Wer ist wer?\nDas Tool bietet lieber eine Stimme zu viel an als eine zu wenig "
+                            "– **mehrere Stimmen dürfen dieselbe Person sein** (z. B. wenn jemand mal "
+                            "laut, mal leise spricht). Hör rein und ordne jede zu. Musik-Bots o. Ä. auf "
+                            "*(ignorieren)*. Fehlt jemand? Im Tab **Gruppe** eintragen und speichern.")
+                with gr.Accordion("Passt nicht? Stimmen neu trennen (ohne neue Abschrift)", open=False):
+                    gr.Markdown("Fehlt eine Person ganz oder sind zwei Leute in einer Stimme gelandet? "
+                                "Dann neu trennen – das dauert nur ein paar Minuten, die Abschrift bleibt.")
+                    with gr.Row():
+                        resplit_n = gr.Number(label="Leute außer dir im Discord", value=n_spieler() or 4,
+                                              precision=0, minimum=1, scale=2)
+                        resplit_btn = gr.Button("🔄 Stimmen neu trennen", scale=1)
                 rows = []
                 for i in range(MAX_STIMMEN):
                     with gr.Group(visible=False) as r:
@@ -788,7 +810,9 @@ def build():
                               [state, transcript, summary, comic_md, status, voice_box],
                               concurrency_limit=None, show_progress_on=[status])
         ev_comic = comic_btn.click(do_comic, state, comic_md, concurrency_limit=None)
-        cancel_btn.click(do_cancel, None, status, cancels=[ev_go, ev_fin, ev_comic])
+        ev_resplit = resplit_btn.click(do_resplit, [state, resplit_n], [status, state, voice_box] + voice_outs,
+                                       concurrency_limit=None, show_progress_on=[status])
+        cancel_btn.click(do_cancel, None, status, cancels=[ev_go, ev_fin, ev_comic, ev_resplit])
         folder_btn.click(open_folder, state, folder_md)
         save_g.click(save_group, [ich_name, ich_rolle, dm_dd, table, kontext],
                      [g_status, n_andere, dm_dd] + img_slots).then(
