@@ -53,6 +53,14 @@ def _safe(fn):
         return f"(Fehler: {e})"
 
 
+def _plugin_log():
+    from . import config as C
+    logs = sorted(C.recordings_dir().glob("*_spuren/plugin.log"), key=lambda p: p.stat().st_mtime)
+    if not logs:
+        return "(keins)"
+    return "".join(logs[-1].read_text(encoding="utf-8", errors="replace").splitlines(True)[-40:])
+
+
 def report():
     from . import llm as L
     from .recorder import find_discord, list_mics
@@ -81,6 +89,8 @@ def report():
         "strata launch --status:",
         _safe(lambda: L.strata_status_urls()[1]),
         f"Laufende Strata-Prozesse: {_safe(_strata_procs)}",
+        f"Vesktop/Plugin: {_safe(lambda: __import__('chronist.vesktop', fromlist=['x']).status_text())}",
+        f"Vesktop-Plugin-Protokoll (letzte Aufnahme):\n{_safe(_plugin_log)}",
         "",
         "----- Aufnahme -----",
         f"Discord-Prozess: {_safe(find_discord)}",

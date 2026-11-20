@@ -16,7 +16,8 @@ from . import config as C
 from .debuglog import log
 from .audio import FFMPEG, _NOWIN
 
-DISCORD_NAMES = {"discord.exe", "discordptb.exe", "discordcanary.exe"}
+DISCORD_NAMES = {"discord.exe", "discordptb.exe", "discordcanary.exe", "vesktop.exe"}
+BRIDGE_PORT = 7863          # hier fragt das Vencord-Plugin, ob gerade aufgenommen wird
 
 
 # ---------- Geräte & Discord finden ----------
@@ -128,6 +129,9 @@ class Recorder:
         self.discord_status = ""
         self._threads = []
         self._stop = threading.Event()
+        self.stopping = False
+        self.spuren_dir = None
+        self.plugin_seen = 0.0          # letzter Kontakt des Vencord-Plugins (time.time())
 
     # Öffentliche Infos für die Oberfläche
     def elapsed(self):
@@ -180,6 +184,9 @@ class Recorder:
         self.mic.start(t0)
         self.dis.start(t0)
         self.start_time = t0
+        self.start_epoch = time.time()
+        self.spuren_dir = self.out_path.with_name(self.out_path.stem + "_spuren")
+        self.stopping = False
         self._stream.start()
         log.info("Aufnahme gestartet: %s | Mikro %s (%s Hz, %s Kanäle)", self.out_path.name,
                  dev.get("name"), mic_sr, mic_ch)
@@ -262,6 +269,7 @@ class Recorder:
         """Beendet die Aufnahme und baut daraus eine Datei mit 2 Spuren (Mikro, Discord)."""
         if not self.running:
             return None
+        self.stopping = True            # Plugin hört auf und schreibt den Rest weg
         try:
             self._stream.stop(); self._stream.close()
         except Exception:
@@ -298,7 +306,114 @@ class Recorder:
                        capture_output=True, creationflags=_NOWIN)
         self.mic.path.unlink(missing_ok=True)
         self.dis.path.unlink(missing_ok=True)
+        try:
+            n = finish_user_tracks(self.spuren_dir, self.start_epoch, mic_len)
+            if n:
+                log.info("Einzelspuren aus Vesktop gespeichert: %s", n)
+        except Exception:
+            log.exception("Einzelspuren konnten nicht verarbeitet werden")
+        self.stopping = False
         return str(self.out_path)
 
 
+# ---------- Einzelspuren aus dem Vencord-Plugin (Vesktop) ----------
+def _safe(n):
+    import re
+    return re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "", str(n)).strip(" .")[:40] or "user"
+
+
+def finish_user_tracks(folder, rec_start_epoch, length_s, wait=6.0):
+    """Wartet kurz auf das Plugin, wandelt die rohen Spuren in FLAC (auf die Aufnahme ausgerichtet)."""
+    import json
+    if not folder:
+        return 0
+    folder = Path(folder)
+    meta_p = folder / "spuren.json"
+    t_end = time.time() + wait
+    last = None
+    while time.time() < t_end:                     # bis das Plugin fertig geschrieben hat
+        if meta_p.exists():
+            cur = (meta_p.stat().st_mtime, sum(p.stat().st_size for p in folder.glob("*.pcm")))
+            if cur == last:
+                break
+            last = cur
+        time.sleep(1.5)
+    if not meta_p.exists():
+        return 0
+    meta = json.loads(meta_p.read_text(encoding="utf-8"))
+    sr = int(meta.get("sample_rate") or 48000)
+    offset = meta.get("start_epoch_ms", rec_start_epoch * 1000) / 1000 - rec_start_epoch
+    out = []
+    for sp in meta.get("spuren", []):
+        pcm = folder / sp.get("file", "")
+        if not pcm.exists() or pcm.stat().st_size < sr:       # unter ~0,5 s Ton: weglassen
+            continue
+        flac = folder / f"{_safe(sp.get('anzeige') or sp.get('name'))}__{sp['id']}.flac"
+        af = (f"adelay={int(offset * 1000)}:all=1," if offset > 0 else f"atrim=start={-offset:.3f},asetpts=PTS-STARTPTS,") \
+            + f"apad,atrim=0:{length_s:.3f}"
+        r = subprocess.run([FFMPEG, "-y", "-hide_banner", "-loglevel", "error", "-f", "s16le", "-ar", str(sr),
+                            "-ac", "1", "-i", str(pcm), "-af", af, "-c:a", "flac", str(flac)],
+                           capture_output=True, creationflags=_NOWIN)
+        if r.returncode == 0:
+            pcm.unlink(missing_ok=True)
+            out.append({**sp, "file": flac.name})
+        else:
+            log.warning("Spur %s nicht umgewandelt: %s", sp.get("anzeige"), r.stderr.decode("utf-8", "replace")[-300:])
+    meta["spuren"] = out
+    meta["ausgerichtet_auf_aufnahme"] = True
+    meta_p.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    return len(out)
+
+
+def user_tracks(rec_path):
+    """Einzelspuren zu einer Aufnahme: [{id, name, anzeige, file(Path)}] oder []."""
+    import json
+    folder = Path(rec_path).with_name(Path(rec_path).stem + "_spuren")
+    try:
+        meta = json.loads((folder / "spuren.json").read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not meta.get("ausgerichtet_auf_aufnahme"):
+        return []
+    return [{**sp, "file": folder / sp["file"]} for sp in meta.get("spuren", []) if (folder / sp["file"]).exists()]
+
+
 REC = Recorder()
+
+
+def start_bridge():
+    """Kleiner lokaler Dienst (nur 127.0.0.1): das Vencord-Plugin fragt hier, ob und wohin es aufnehmen soll."""
+    import json
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    class H(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path.split("?")[0] != "/status":
+                self.send_error(404)
+                return
+            REC.plugin_seen = time.time()
+            on = REC.running and not REC.stopping and REC.spuren_dir is not None
+            body = json.dumps({"app": "Ascandir SessionRecorder", "recording": on,
+                               "dir": str(REC.spuren_dir) if on else None,
+                               "session": getattr(REC, "session_name", "") if on else ""}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    try:
+        srv = ThreadingHTTPServer(("127.0.0.1", BRIDGE_PORT), H)
+    except OSError as e:
+        log.warning("Plugin-Brücke nicht gestartet (Port %s belegt?): %s", BRIDGE_PORT, e)
+        return None
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    log.info("Plugin-Brücke läuft auf 127.0.0.1:%s", BRIDGE_PORT)
+    return srv
+
+
+def plugin_connected():
+    return time.time() - REC.plugin_seen < 5

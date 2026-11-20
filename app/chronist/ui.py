@@ -105,7 +105,9 @@ def _voice_updates(state):
                        if v["vorschlag"] else "noch unbekannt – bitte zuordnen")
             val = zu.get(v["id"]) or v["vorschlag"] or None
             ups += [gr.update(visible=True),
-                    gr.update(value=f"**Stimme {v['nr']}** · {min_:.1f} Min. gesprochen · {erkannt}"),
+                    gr.update(value=(f"**{v['discord']['anzeige']}** (Discord: {v['discord']['name']}) · "
+                                     if v.get("discord") else f"**Stimme {v['nr']}** · ")
+                                    + f"{min_:.1f} Min. gesprochen · {erkannt}"),
                     gr.update(value=v["clip"]),
                     gr.update(choices=name_choices(), value=val if val in name_choices() else None)]
         else:
@@ -441,7 +443,7 @@ def save_group(ich_name, ich_rolle, dm, table, kontext, fig_table=None):
         if c.get("besitzer") == old.get("ich_name") and new_me != old.get("ich_name"):
             c["besitzer"] = new_me
     g = {"ich_name": new_me, "dm": dm, "spieler": rows, "kontext": kontext,
-         "bilder": old.get("bilder", {}), "charaktere": chars}
+         "bilder": old.get("bilder", {}), "charaktere": chars, "discord": old.get("discord", {})}
     C.save_group(g)
     wer = "Du bist der DM." if dm == C.ICH_ID else f"{dm} ist der DM."
     msg = f"Gespeichert: {len(rows)} Mitspieler. {wer}"
@@ -653,6 +655,26 @@ def _ki_status(mode, st):
     return f"Es wird die KI unter `{st['llm_url']}` genutzt. Sie muss selbst gestartet sein."
 
 
+def do_vesk_install(progress=gr.Progress()):
+    from . import vesktop as V
+    try:
+        V.install(lambda f, m: progress(f, desc=m))
+    except Exception as e:
+        log.exception("Vesktop-Plugin")
+        raise gr.Error(f"Einrichten fehlgeschlagen: {e}")
+    return ("✅ **Eingerichtet.** Starte jetzt Vesktop und geh darüber in den Sprachkanal. Sobald Vesktop läuft, "
+            "steht im Aufnahme-Tab „Vesktop-Plugin verbunden“.")
+
+
+def do_vesk_remove():
+    from . import vesktop as V
+    try:
+        V.uninstall()
+    except Exception as e:
+        raise gr.Error(str(e))
+    return "Plugin entfernt – Vesktop nutzt beim nächsten Start wieder sein normales Vencord."
+
+
 def draw_status_text():
     from . import comic as CO
     lines = []
@@ -779,13 +801,20 @@ def _bar(level):
 
 
 def rec_status():
+    from .recorder import plugin_connected
+    plug = plugin_connected()
     if not REC.running:
         pid = find_discord()
         d = "✅ Discord läuft." if pid else "⚠️ Discord läuft gerade nicht – vor der Aufnahme starten."
+        if plug:
+            d += "  \n🎧 Vesktop-Plugin verbunden – jede Person bekommt eine eigene Spur."
         return f"### ⏺ Bereit\n{d}"
     m, dsc = REC.levels()
     txt = (f"### 🔴 Aufnahme läuft · {_fmt_time(REC.elapsed())}\n"
            f"`Mikro   {_bar(m)}`  \n`Discord {_bar(dsc)}`\n\n{REC.discord_status}")
+    if plug:
+        n = len(list(REC.spuren_dir.glob("*.pcm"))) if REC.spuren_dir and REC.spuren_dir.exists() else 0
+        txt += f"\n\n🎧 Einzelspuren über Vesktop: **{n} Person(en)** bisher aufgenommen"
     if REC.error:
         txt += f"\n\n⚠️ {REC.error}"
     return txt
@@ -815,6 +844,11 @@ def do_rec_stop():
     if not path:
         raise gr.Error("Beim Speichern ist etwas schiefgegangen: " + (REC.error or "unbekannt"))
     warn = f"\n\n⚠️ Das Mikro hat {REC.overflows}× kurz gestockt." if getattr(REC, "overflows", 0) > 5 else ""
+    from .recorder import user_tracks
+    ut = user_tracks(path)
+    if ut:
+        warn += ("\n\n🎧 **Einzelspuren:** " + ", ".join(sp.get("anzeige") or sp.get("name") for sp in ut)
+                 + " – die Stimmtrennung entfällt, jede Spur ist genau eine Person.")
     msg = (f"### ✅ Aufnahme gespeichert\n`{Path(path).name}` – zum Anhören liegt daneben "
            f"`{Path(path).with_suffix('.mp3').name}`.{warn}\n\n"
            "Wenn du so weit bist: Tab **Session auswerten** – die Aufnahme ist schon ausgewählt.")
@@ -1148,6 +1182,20 @@ def build():
             with gr.Row():
                 style_save = gr.Button("Comic-Einstellungen speichern")
                 draw_inst = gr.Button("Gewähltes Bildmodell jetzt installieren")
+            gr.Markdown("### 🎧 Einzelspuren pro Person (Vesktop)")
+            gr.Markdown("Mit **Vesktop** (ein Discord-Programm, gleiches Konto, gleiche Server) und unserem Plugin "
+                        "bekommt jede Person im Sprachkanal eine **eigene Tonspur**. Dann muss nichts mehr getrennt "
+                        "werden und keine Stimmen werden vertauscht. Das Plugin nimmt nur auf, solange hier die "
+                        "Aufnahme läuft, und speichert alles im Aufnahmeordner.\n\n"
+                        "1. Vesktop installieren und einmal anmelden  2. Vesktop schließen  "
+                        "3. **Plugin einrichten** klicken  4. Vesktop starten und darüber in den Sprachkanal gehen")
+            from . import vesktop as _vesk
+            vesk_md = gr.Markdown(_vesk.status_text())
+            with gr.Row():
+                vesk_dl = gr.Button("Vesktop herunterladen")
+                vesk_inst = gr.Button("Plugin einrichten / aktualisieren", variant="primary")
+                vesk_chk = gr.Button("Status prüfen")
+                vesk_rm = gr.Button("Plugin entfernen")
             gr.Markdown("### 💾 Speicher")
             gr.Markdown("Alle Modelle, Downloads und Zwischendateien liegen im Programmordner – nichts im "
                         "Benutzerordner oder im Windows-Temp.")
@@ -1276,6 +1324,10 @@ def build():
         strata_preset_dd.input(save_preset, strata_preset_dd, ki_md)
         dbg_btn.click(do_debug, None, [dbg_md, dbg_text, dbg_file])
         sto_refresh.click(do_storage_refresh, None, sto_md)
+        vesk_inst.click(do_vesk_install, None, vesk_md)
+        vesk_dl.click(lambda: __import__("webbrowser").open("https://vesktop.dev/install/windows/"), None, None)
+        vesk_chk.click(lambda: __import__("chronist.vesktop", fromlist=["x"]).status_text(), None, vesk_md)
+        vesk_rm.click(do_vesk_remove, None, vesk_md)
         style_save.click(save_comic_settings, [comic_model, comic_fmt, comic_style], draw_md)
         draw_inst.click(do_install_draw, comic_model, draw_md)
         sto_temp.click(do_clear_temp, None, [sto_md, sto_status])
@@ -1322,6 +1374,8 @@ def launch():
             return
     from . import storage
     storage.clean_temp()          # nur hier: wir sind der einzige laufende Server
+    from .recorder import start_bridge
+    start_bridge()
     app, theme = build()
     js = ("() => { document.body.classList.add('dark'); }" if dark
           else "() => { document.body.classList.remove('dark'); }")

@@ -170,6 +170,118 @@ def _voices(dis, n_spk, out, progress):
     return segs, stimmen
 
 
+def _speech_parts(words, max_total=16.0, n=6):
+    """Hörprobe aus den längsten zusammenhängenden Redestücken (über die Session verteilt)."""
+    runs, cur = [], None
+    for ws, we, *_ in words:
+        if cur and ws - cur[1] <= 0.8:
+            cur[1] = we
+        else:
+            if cur:
+                runs.append(tuple(cur))
+            cur = [ws, we]
+    if cur:
+        runs.append(tuple(cur))
+    runs = [r for r in runs if r[1] - r[0] >= 1.2] or runs
+    if not runs:
+        return []
+    k = max(1, len(runs) // n)
+    pick = sorted(sorted(runs[i:i + k], key=lambda r: r[0] - r[1])[0] for i in range(0, len(runs), k))
+    out, total = [], 0.0
+    for a, b in sorted(pick, key=lambda r: r[0] - r[1]):
+        if total >= max_total:
+            break
+        b = min(b, a + 5.0)
+        out.append((a, b))
+        total += b - a
+    return sorted(out)
+
+
+def _guess_player(sp, grp):
+    """Vorschlag für eine Discord-Person: gespeicherte Zuordnung, sonst Namensvergleich."""
+    known = (grp.get("discord") or {}).get(str(sp["id"]))
+    if known:
+        return known, 1.0
+    names = [grp.get("ich_name", "")] + [x.get("name", "") for x in grp.get("spieler", [])]
+    cand = {str(sp.get(k) or "").lower() for k in ("anzeige", "name")}
+    for n in names:
+        if n and any(n.lower() == c or (len(n) > 2 and n.lower() in c) for c in cand):
+            return n, 0.9
+    return "", 0.0
+
+
+def analyse_user_tracks(path, spuren, title, spuren_vertauscht, progress):
+    """Einzelspuren aus Vesktop: keine Stimmtrennung nötig – jede Spur ist genau eine Person."""
+    st = C.settings()
+    grp = C.group()
+    out = session_dir(title or path.stem)
+    work = out / "_arbeit"
+    work.mkdir(exist_ok=True)
+    prompt = _prompt(grp)
+    for old in out.glob("stimme_*.wav"):
+        old.unlink(missing_ok=True)
+    n = A.audio_streams(path)
+    mic = A.load_wav(A.extract(path, 1 if (spuren_vertauscht and n >= 2) else 0, work / "mikro.wav"))
+    tracks = [(sp, A.load_wav(A.extract(sp["file"], 0, work / f"u_{i}.wav"))) for i, sp in enumerate(spuren)]
+    total = len(mic) + sum(len(a) for _, a in tracks) or 1
+    done = 0
+    log.info("Analyse mit %s Einzelspuren: %s", len(spuren), [sp.get("anzeige") for sp in spuren])
+
+    def part(n_samples, msg):
+        a = 0.05 + 0.9 * done / total
+        b = 0.05 + 0.9 * (done + n_samples) / total
+        return lambda f: progress(a + (b - a) * f, msg)
+
+    words = [[s, e, t, C.ICH_ID] for s, e, t in T.transcribe(mic, st["whisper_model"], prompt,
+                                                            part(len(mic), "Dein Mikro wird abgeschrieben ..."))]
+    done += len(mic)
+    stimmen = []
+    for sp, aud in tracks:
+        label = sp.get("anzeige") or sp.get("name")
+        w = T.transcribe(aud, st["whisper_model"], prompt, part(len(aud), f"Spur von {label} wird abgeschrieben ..."))
+        done += len(aud)
+        if not w:
+            log.info("Spur %s: kein verständlicher Text – übersprungen", label)
+            continue
+        sid = f"U{sp['id']}"
+        words += [[s, e, t, sid] for s, e, t in w]
+        parts = _speech_parts(w)
+        clip = A.write_clip(aud, parts, out / f"stimme_{len(stimmen) + 1}.wav", max_len=16.0)
+        emb = D.embed(aud, parts) if parts else None
+        name, sim = _guess_player(sp, grp)
+        stimmen.append({
+            "id": sid, "nr": len(stimmen) + 1, "vorschlag": name, "aehnlichkeit": sim, "clip": clip,
+            "dauer": round(sum(e - s for s, e, _ in w), 1), "clip_teile": parts,
+            "embedding": emb.tolist() if emb is not None else None,
+            "discord": {"id": str(sp["id"]), "name": sp.get("name"), "anzeige": sp.get("anzeige")},
+        })
+    stimmen.sort(key=lambda v: -v["dauer"])
+    for i, v in enumerate(stimmen, 1):          # Nummern/Hörproben zur Sortierung passend machen
+        if v["nr"] != i and v["clip"]:
+            Path(v["clip"]).rename(out / f"_tmp_{i}.wav")
+            v["clip"] = str(out / f"_tmp_{i}.wav")
+        v["nr"] = i
+    for v in stimmen:
+        if v["clip"] and Path(v["clip"]).name.startswith("_tmp_"):
+            dst = out / f"stimme_{v['nr']}.wav"
+            Path(v["clip"]).rename(dst)
+            v["clip"] = str(dst)
+    words.sort(key=lambda x: x[0])
+    state = {
+        "titel": title or path.stem, "quelle": str(path), "modus": "einzelspuren",
+        "vertauscht": bool(spuren_vertauscht), "n_andere": len(stimmen),
+        "ordner": str(out), "stimmen": stimmen, "woerter": words, "gruppe": C.active_group(),
+        "erstellt": dt.datetime.now().isoformat(timespec="seconds"),
+    }
+    with open(out / "analyse.json", "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False)
+    shutil.rmtree(work, ignore_errors=True)
+    log.info("Analyse (Einzelspuren) fertig: %s Wörter, Stimmen: %s", len(words),
+             [(v["discord"]["anzeige"], v["vorschlag"], v["dauer"]) for v in stimmen])
+    progress(1.0, "Fertig analysiert.")
+    return state
+
+
 def analyse(path, title, n_andere, spuren_vertauscht=False, progress=lambda f, m: None):
     """Der lange Teil. Speichert alles in analyse.json im Session-Ordner."""
     st = C.settings()
@@ -177,6 +289,10 @@ def analyse(path, title, n_andere, spuren_vertauscht=False, progress=lambda f, m
     path = Path(str(path).strip().strip('"'))
     if not path.exists():
         raise FileNotFoundError(f"Datei nicht gefunden: {path}")
+    from .recorder import user_tracks
+    spuren = user_tracks(path)
+    if spuren:
+        return analyse_user_tracks(path, spuren, title, spuren_vertauscht, progress)
     out = session_dir(title or path.stem)
     work = out / "_arbeit"
     work.mkdir(exist_ok=True)
@@ -236,6 +352,9 @@ def analyse(path, title, n_andere, spuren_vertauscht=False, progress=lambda f, m
 
 def resplit(state, n_andere, progress=lambda f, m: None):
     """Nur die Stimmen neu trennen – ohne neue Abschrift (geht auch bei alten Sessions)."""
+    if state.get("modus") == "einzelspuren":
+        raise RuntimeError("Diese Session hat Einzelspuren aus Vesktop – jede Spur ist schon genau eine Person, "
+                           "neu trennen ist nicht nötig.")
     path = Path(state["quelle"])
     if not path.exists():
         raise FileNotFoundError(f"Die Original-Aufnahme fehlt: {path}\nOhne sie geht nur eine komplett neue Analyse.")
@@ -288,6 +407,14 @@ def build_transcript(state, mapping, lern=True):
             if name and name not in (C.IGNORIEREN, C.UNBEKANNT) and v.get("embedding"):
                 D.update_profile(profiles, name, np.asarray(v["embedding"]))
         C.save_voices(profiles)
+    # Discord-Konten merken: nächstes Mal ist die Zuordnung schon vorausgefüllt
+    dmap = {v["discord"]["id"]: mapping.get(v["id"]) for v in state["stimmen"] if v.get("discord")}
+    dmap = {k: n for k, n in dmap.items() if n and n not in (C.IGNORIEREN, C.UNBEKANNT)}
+    if dmap:
+        g = C.group()
+        g.setdefault("discord", {}).update(dmap)
+        C.save_group(g)
+        grp = g
     state["zuordnung"] = mapping
 
     def label(spk):

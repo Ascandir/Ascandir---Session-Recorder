@@ -1,8 +1,6 @@
-- **📱 Manhwa / Webtoon-Format (neuer Standard):** ein langer Streifen zum Scrollen, Panels in voller Breite oder versetzt, mit viel Luft dazwischen, ovale Sprechblasen, Farbe im Manhwa-Stil
-- **📖 Manga-Seiten:** Kapitel-Auftakt als ganze Seite mit Titel, danach 3–4 Panels pro Seite in wechselnden Aufteilungen (hoch, breit, Nahaufnahme), Schwarz-Weiß mit Rasterfolie
-- Klassische Comic-Seiten gibt es weiterhin, jetzt aber mit höchstens 4 Panels pro Seite statt 5 gequetschten
-- Jedes Panel wird im richtigen Seitenverhältnis gemalt (hoch, breit, quadratisch) und bekommt einen passenden Bildausschnitt (Totale, Ganzkörper, Nahaufnahme, Splash) – nichts wird mehr weggeschnitten
-- **Neues Bildmodell „Hohe Qualität“ (FLUX.2-klein 9B, Standard):** deutlich bessere Charakterkonsistenz und Details, dafür langsamer (grob 1–2 Min. pro Panel) und ca. 20 GB Download. „Schnell“ (4B) bleibt wählbar
-- Einstellungen: Bildmodell, Comic-Format und optional eigener Zeichenstil; leer bleibt der passende Stil zum Format
-- Die Comic-Seiten werden im Tool in einem Scroll-Betrachter angezeigt
-- Comic-Vorlagen haben jetzt 10–14 Panels
+- **🎧 Jede Person auf eigener Spur (Vesktop):** Neues Vencord-Plugin für Vesktop. Während der SessionRecorder aufnimmt, speichert es jede Person im Sprachkanal als eigene Tonspur direkt in den Aufnahmeordner. Die Stimmtrennung entfällt, nichts kann mehr vertauscht werden
+- Einrichten mit einem Klick unter ⚙️ Einstellungen → 🎧 Einzelspuren: lädt das Plugin, stellt Vesktop darauf um und schaltet es ein
+- Bei der Auswertung erscheint jede Person mit ihrem Discord-Namen. Die Zuordnung zum Spieler wird pro Discord-Konto gemerkt und ist beim nächsten Mal vorausgefüllt
+- Aufnahme-Tab zeigt „Vesktop-Plugin verbunden“ und wie viele Personen schon eigene Spuren haben
+- Die gemischte Discord-Spur wird jetzt auch aus Vesktop aufgenommen
+- Debug-Log enthält den Plugin-Status und das Protokoll der letzten Einzelspur-Aufnahme

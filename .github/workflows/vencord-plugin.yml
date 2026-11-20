@@ -1,0 +1,58 @@
+name: Vencord-Plugin bauen
+
+# Baut Vencord (aktueller Stand) zusammen mit dem SessionRecorder-Plugin und legt das Paket
+# im Vorab-Release "vencord-plugin" ab. Läuft wöchentlich, damit es zu neuen Discord-Versionen passt.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["vencord-plugin/**", ".github/workflows/vencord-plugin.yml"]
+  schedule:
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Vencord holen
+        run: git clone --depth 1 https://github.com/Vendicated/Vencord vencord-src
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Bauen
+        working-directory: vencord-src
+        run: |
+          corepack enable
+          mkdir -p src/userplugins
+          cp -r ../vencord-plugin/sessionRecorder src/userplugins/
+          pnpm install --frozen-lockfile
+          pnpm build
+          test -f dist/vencordDesktopMain.js
+          grep -q AscandirSessionRecorder dist/vencordDesktopRenderer.js
+          echo "VENCORD_SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+
+      - name: Paket schnüren
+        run: |
+          cd vencord-src/dist
+          zip -q ../../Vencord-SessionRecorder.zip vencordDesktop* -x "*.map"
+          cd ../..
+          ls -la Vencord-SessionRecorder.zip
+
+      - name: Vorab-Release aktualisieren
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES="Vencord ${VENCORD_SHA} mit dem SessionRecorder-Plugin (Einzelspuren pro Person in Vesktop). Wird vom SessionRecorder automatisch geladen – nicht von Hand installieren."
+          if gh release view vencord-plugin >/dev/null 2>&1; then
+            gh release edit vencord-plugin --notes "$NOTES" --prerelease --latest=false
+          else
+            gh release create vencord-plugin --title "Vencord-Plugin (für Vesktop)" --notes "$NOTES" --prerelease --latest=false
+          fi
+          gh release upload vencord-plugin Vencord-SessionRecorder.zip --clobber
