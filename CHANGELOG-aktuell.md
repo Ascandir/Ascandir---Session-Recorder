@@ -1,3 +1,3 @@
-- **Hängengebliebene Bildgenerator-Prozesse werden beendet:** Wurde der SessionRecorder während des Comic-Malens geschlossen oder aktualisiert, lief der Bildgenerator unsichtbar weiter, belegte Prozessor und Grafikspeicher und bremste jeden neuen Comic aus. Solche Reste werden jetzt beim Start und vor jedem Comic automatisch beendet
-- Der Bildgenerator nimmt sich beim ersten Versuch den Grafikspeicher, den er braucht (die feste Reserve gibt es nur noch beim Sparversuch)
-- Die Ausgabe des Bildgenerators steht live in `comic\bildgenerator.log`, auch während er noch malt
+- **🎧 Auswählen, wer aufgenommen wird:** Im Aufnahme-Tab erscheint bei verbundenem Vesktop-Plugin die Liste aller Personen im Sprachkanal mit Häkchen. Haken weg heißt: diese Person bekommt keine eigene Spur (z. B. Musik-Bots oder Zuschauer). Gilt sofort, auch während der Aufnahme, und wird pro Gruppe gemerkt
+- Bekannte Discord-Konten stehen gleich mit dem zugeordneten Spieler in der Liste
+- Dafür einmal unter ⚙️ Einstellungen → 🎧 Einzelspuren auf „Plugin einrichten / aktualisieren“ klicken (Vesktop vorher schließen)

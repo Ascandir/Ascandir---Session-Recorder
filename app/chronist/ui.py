@@ -448,7 +448,8 @@ def save_group(ich_name, ich_rolle, dm, table, kontext, fig_table=None):
         if c.get("besitzer") == old.get("ich_name") and new_me != old.get("ich_name"):
             c["besitzer"] = new_me
     g = {"ich_name": new_me, "dm": dm, "spieler": rows, "kontext": kontext,
-         "bilder": old.get("bilder", {}), "charaktere": chars, "discord": old.get("discord", {})}
+         "bilder": old.get("bilder", {}), "charaktere": chars, "discord": old.get("discord", {}),
+         "spur_aus": old.get("spur_aus", [])}
     C.save_group(g)
     wer = "Du bist der DM." if dm == C.ICH_ID else f"{dm} ist der DM."
     msg = f"Gespeichert: {len(rows)} Mitspieler. {wer}"
@@ -829,6 +830,38 @@ def mic_choices():
     return list_mics()
 
 
+_PEOPLE_SIG = [None]
+
+
+def people_update(force=False):
+    """Auswahl-Liste der Personen im Sprachkanal – nur neu zeichnen, wenn sich jemand ändert."""
+    from .recorder import channel_people
+    ppl = channel_people()
+    grp = C.group(getattr(REC, "group", None) if REC.running else None)
+    skip = set(grp.get("spur_aus", []))
+    sig = (tuple(ppl), tuple(sorted(skip)))
+    if sig == _PEOPLE_SIG[0] and not force:
+        return gr.update()
+    _PEOPLE_SIG[0] = sig
+    if not ppl:
+        return gr.update(visible=False, choices=[], value=[])
+    known = grp.get("discord") or {}
+    choices = [(f"{an}" + (f" – {known[i]}" if known.get(i) and known[i].lower() not in an.lower() else "")
+                + (f" ({nm})" if nm and nm.lower() != an.lower() else ""), i) for i, an, nm in ppl]
+    return gr.update(visible=True, choices=choices, value=[i for i, _, _ in ppl if i not in skip])
+
+
+def save_who(selected):
+    from .recorder import channel_people
+    grp = C.group(getattr(REC, "group", None) if REC.running else None)
+    here = {i for i, _, _ in channel_people()}
+    sel = set(selected or [])
+    skip = {i for i in grp.get("spur_aus", []) if i not in here} | (here - sel)
+    grp["spur_aus"] = sorted(skip)
+    C.save_group(grp, getattr(REC, "group", None) if REC.running else None)
+    log.info("Einzelspuren: %s Person(en) abgewählt", len(skip))
+
+
 def do_rec_start(mic, name):
     if REC.running:
         return rec_status(), gr.update(), gr.update(), gr.update(), gr.update()
@@ -984,6 +1017,10 @@ def build():
                                    info="So heißt später die Aufnahme-Datei (mit Datum davor)",
                                    interactive=not REC.running)
             rec_md = gr.Markdown(rec_status())
+            who = gr.CheckboxGroup(label="🎧 Wen aufnehmen? (Einzelspuren über Vesktop)", choices=[], visible=False,
+                                   info="Haken weg = diese Person bekommt keine eigene Spur. Gilt sofort, auch "
+                                        "während der Aufnahme, und wird für die Gruppe gemerkt.")
+            people_timer = gr.Timer(3.0, active=True)
             with gr.Row():
                 rec_start = gr.Button("⏺ Aufnahme starten", variant="primary", size="lg",
                                       interactive=not REC.running)
@@ -1243,6 +1280,8 @@ def build():
             lambda: gr.update(interactive=True), None, rec_group).then(
             lambda: gr.Tabs(selected="auswerten"), None, tabs)
         timer.tick(rec_status, None, rec_md)
+        people_timer.tick(people_update, None, who, show_progress="hidden")
+        who.input(save_who, who, None)
         quit_btn.click(do_quit, None, quit_md)
 
         G_OUTS = [rec_group, ev_group, grp_sel, rec, alte, n_andere, resplit_n, ich_name, ich_rolle, dm_dd,

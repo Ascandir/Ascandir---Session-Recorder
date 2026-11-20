@@ -19,9 +19,14 @@ function inDir(dir: string, name: string) {
 }
 
 /** Fragt den SessionRecorder (lokal) nach dem Aufnahmestatus. */
-export async function status(_: IpcMainInvokeEvent, port: number) {
+export async function status(_: IpcMainInvokeEvent, port: number, info?: string) {
     try {
-        const r = await fetch(`http://127.0.0.1:${port}/status`, { signal: AbortSignal.timeout(900) });
+        const r = await fetch(`http://127.0.0.1:${port}/status`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: info ?? "{}",
+            signal: AbortSignal.timeout(900),
+        });
         if (!r.ok) return null;
         const s = await r.json();
         if (s?.recording && typeof s.dir === "string" && isAbsolute(s.dir)) {

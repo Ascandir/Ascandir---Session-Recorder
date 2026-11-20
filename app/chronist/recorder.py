@@ -132,6 +132,7 @@ class Recorder:
         self.stopping = False
         self.spuren_dir = None
         self.plugin_seen = 0.0          # letzter Kontakt des Vencord-Plugins (time.time())
+        self.plugin_info = {}           # wer gerade im Sprachkanal ist (vom Plugin)
 
     # Öffentliche Infos für die Oberfläche
     def elapsed(self):
@@ -387,15 +388,31 @@ def start_bridge():
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     class H(BaseHTTPRequestHandler):
+        def do_POST(self):
+            # Das Plugin schickt mit, wer gerade im Sprachkanal ist
+            try:
+                n = min(int(self.headers.get("Content-Length") or 0), 200_000)
+                info = json.loads(self.rfile.read(n) or b"{}")
+                if isinstance(info, dict):
+                    REC.plugin_info = info
+            except Exception:
+                pass
+            self.do_GET()
+
         def do_GET(self):
             if self.path.split("?")[0] != "/status":
                 self.send_error(404)
                 return
             REC.plugin_seen = time.time()
             on = REC.running and not REC.stopping and REC.spuren_dir is not None
+            try:
+                skip = list(C.group(getattr(REC, "group", None) if REC.running else None).get("spur_aus", []))
+            except Exception:
+                skip = []
             body = json.dumps({"app": "Ascandir SessionRecorder", "recording": on,
                                "dir": str(REC.spuren_dir) if on else None,
-                               "session": getattr(REC, "session_name", "") if on else ""}).encode()
+                               "session": getattr(REC, "session_name", "") if on else "",
+                               "nicht_aufnehmen": skip}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -417,3 +434,11 @@ def start_bridge():
 
 def plugin_connected():
     return time.time() - REC.plugin_seen < 5
+
+
+def channel_people():
+    """[(id, Anzeigename, Discord-Name)] der Personen im Sprachkanal – leer, wenn das Plugin nichts meldet."""
+    if not plugin_connected():
+        return []
+    return [(str(p.get("id")), p.get("anzeige") or p.get("name") or str(p.get("id")), p.get("name") or "")
+            for p in REC.plugin_info.get("personen", []) if p.get("id")]

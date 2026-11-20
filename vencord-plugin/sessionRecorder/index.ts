@@ -12,7 +12,7 @@
 import { definePluginSettings } from "@api/Settings";
 import { Logger } from "@utils/Logger";
 import definePlugin, { OptionType, PluginNative, StartAt } from "@utils/types";
-import { ChannelStore, GuildMemberStore, MediaEngineStore, SelectedChannelStore, showToast, UserStore } from "@webpack/common";
+import { ChannelStore, GuildMemberStore, MediaEngineStore, SelectedChannelStore, showToast, UserStore, VoiceStateStore } from "@webpack/common";
 
 const Native = VencordNative.pluginHelpers.AscandirSessionRecorder as PluginNative<typeof import("./native")>;
 const logger = new Logger("AscandirSessionRecorder");
@@ -132,6 +132,7 @@ const pending = new Map<string, { pos: number; data: Int16Array; }[]>();
 const users = new Map<string, UserInfo>();
 let pollTimer: any = null, flushTimer: any = null, scanTimer: any = null;
 let warnedNoWebRTC = false;
+let skip = new Set<string>();          // im SessionRecorder abgehakte Personen (werden nicht aufgenommen)
 
 function myId() {
     try { return UserStore.getCurrentUser()?.id; } catch { return undefined; }
@@ -170,7 +171,7 @@ function onBlock(tap: Tap, e: AudioProcessingEvent) {
     for (let i = 0; i < input.length; i += 8) peak = Math.max(peak, Math.abs(input[i]));
     if (peak < 1e-4) return;                       // Stille: Datei bleibt dort ohnehin leer
     const owner = currentOwner(tap);
-    if (!owner) return;
+    if (!owner || skip.has(owner)) return;
     ensureUser(owner);
     const pos = Math.round((e.playbackTime - rec.origin) * rec.sr);
     if (pos < 0) return;
@@ -298,12 +299,29 @@ async function stopRecording() {
     if (settings.store.notify) showToast({ text: `⏹️ SessionRecorder: ${n} Einzelspur(en) gespeichert`, variant: "default" });
 }
 
+/** Wer ist gerade mit mir im Sprachkanal? (für die Auswahl im SessionRecorder) */
+function channelInfo() {
+    let channel: string | undefined, people: { id: string; name: string; anzeige: string; }[] = [];
+    try {
+        channel = SelectedChannelStore.getVoiceChannelId() ?? undefined;
+        if (channel) {
+            const me = myId();
+            people = Object.keys(VoiceStateStore.getVoiceStatesForChannel(channel) ?? {})
+                .filter(id => id !== me)
+                .map(id => ({ id, ...displayName(id) }));
+        }
+    } catch { }
+    const name = channel ? ChannelStore.getChannel(channel)?.name : undefined;
+    return { kanal: channel, kanal_name: name, personen: people, webrtc: pcs.size > 0 };
+}
+
 let busy = false;
 async function poll() {
     if (busy) return;
     busy = true;
     try {
-        const s = await Native.status(settings.store.port);
+        const s = await Native.status(settings.store.port, JSON.stringify(channelInfo()));
+        skip = new Set<string>(Array.isArray(s?.nicht_aufnehmen) ? s.nicht_aufnehmen.map(String) : []);
         const want = !!s?.recording && typeof s?.dir === "string";
         if (want && !rec) await startRecording(s.dir);
         else if (rec && (!want || s.dir !== rec.dir)) await stopRecording();
