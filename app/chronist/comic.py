@@ -320,13 +320,13 @@ def refs_for(panel, grp, max_refs=4):
     return hits[:max_refs]
 
 
-def assign_refs(refs, max_images=4):
+def assign_refs(refs, max_images=3):
     """Referenzbilder verteilen: erst ein Bild pro Charakter, dann zweite Ansichten, solange Platz ist.
     Liefert [(charakter, [bildpfade])] – die Reihenfolge entspricht „image 1, image 2 …“ im Prompt."""
     with_img = [r for r in refs if r.get("bilder")]
     plan = [[r, []] for r in with_img]
     n = 0
-    for round_ in range(2):
+    for round_ in range(1):              # eine Ansicht pro Figur – mehr kostet viel Grafikspeicher
         for entry in plan:
             imgs = entry[0]["bilder"]
             if round_ < len(imgs) and n < max_images:
@@ -335,7 +335,7 @@ def assign_refs(refs, max_images=4):
     return [(r, imgs) for r, imgs in plan if imgs]
 
 
-def _norm_size(im, bg, long_side=768, mult=64):
+def _norm_size(im, bg, long_side=512, mult=64):
     """Vorlagebild auf eine Größe bringen, mit der FLUX sauber rechnet: lange Seite ~768 px,
     beide Seiten Vielfache von 64 (mit Hintergrundfarbe aufgefüllt, nichts verzerrt).
     Krumme Größen (z. B. 222x512) ließen den Bildgenerator auf der Grafikkarte hängen."""
@@ -456,6 +456,7 @@ def _supports(exe, flag):
 
 CURRENT = {"proc": None, "abbruch": False}
 HANG_SECONDS = 150          # so lange ohne neue Ausgabe = hängt (ein Panel braucht normal < 1 Min.)
+SLOW_SECONDS_PER_STEP = 30  # normal 5–10 s pro Schritt
 
 
 class Hang(RuntimeError):
@@ -490,6 +491,18 @@ def _run_sd(cmd, exe, logfile=None):
             size = logfile.stat().st_size
             if size != last_size:
                 last_size, last_change = size, time.time()
+                # Schritt-Tempo prüfen: normal ~5 s pro Schritt; viel langsamer = Grafikspeicher läuft über
+                # (Windows lagert dann in den Arbeitsspeicher aus, der Prozessor glüht, die Karte wartet)
+                with open(logfile, "rb") as g:
+                    g.seek(max(start, size - 4000))
+                    tail = g.read().decode("utf-8", "replace")
+                its = re.findall(r"([\d.]+)s/it", tail)
+                if its and float(its[-1]) > SLOW_SECONDS_PER_STEP:
+                    hung = True
+                    log.warning("Bildgenerator viel zu langsam (%s s pro Schritt) – Grafikspeicher voll, "
+                                "versuche es sparsamer", its[-1])
+                    p.kill()
+                    p.wait()
             elif time.time() - last_change > HANG_SECONDS:
                 hung = True
                 log.warning("Bildgenerator hängt seit %s s ohne Fortschritt – wird beendet", HANG_SECONDS)
@@ -558,11 +571,10 @@ def generate_panel(prompt, refs, out_png, seed, w=1024, h=768, plan=None, m=None
                "--diffusion-fa", "--vae-tiling"]
         if _supports(exe, "--backend"):
             cmd += ["--backend", "vulkan0"]            # Rechnen immer auf der Grafikkarte, nie auf dem Prozessor
-        if spar and _supports(exe, "--max-vram"):
-            cmd += ["--max-vram", "-1"]                # ~1 GB für Windows/Discord frei lassen
-        if spar and _supports(exe, "--params-backend"):
-            # Notlösung bei knappem Speicher: Gewichte im RAM, Textmodell nach dem Lesen wieder freigeben
-            cmd += ["--params-backend", "all=cpu,te=disk"]
+        if _supports(exe, "--params-backend"):
+            # Textmodell liegt im Arbeitsspeicher (es rechnet nur einmal kurz am Anfang auf der Karte),
+            # so bleibt der Grafikspeicher fürs eigentliche Malen frei; im Sparversuch auch das Bildmodell
+            cmd += ["--params-backend", "all=cpu,te=disk" if spar else "te=cpu"]
         elif spar:
             cmd += ["--offload-to-cpu"]
         return cmd + refs_args
@@ -570,13 +582,20 @@ def generate_panel(prompt, refs, out_png, seed, w=1024, h=768, plan=None, m=None
     # Versuche: normal → kleiner gemalt → zusätzlich Textmodell von der Platte → mit weniger Vorlagen
     small = gen_size(w, h, mp=0.7)
     # 1. Versuch: sd.cpp verteilt selbst (alles auf die Grafikkarte, was passt) – 2./3.: sparsam
-    tries = [(w, h, ref_args, False), (*small, ref_args, True), (*gen_size(w, h, mp=0.55), ref_args[:4], True)]
+    tries = [(w, h, ref_args, False), (*small, ref_args[:4], False), (*gen_size(w, h, mp=0.55), [], True)]
     sdlog = Path(out_png).parent / "bildgenerator.log"
     t0 = time.time()
     last = ""
     for i, (gw, gh, ra, disk) in enumerate(tries):
         Path(out_png).unlink(missing_ok=True)
-        p = _run_sd(build(gw, gh, ra, disk), exe, sdlog)
+        try:
+            p = _run_sd(build(gw, gh, ra, disk), exe, sdlog)
+        except Hang as e:
+            last = "Hängt/zu langsam (Grafikspeicher voll)"
+            if i == len(tries) - 1:
+                raise
+            log.info("Nächster Versuch sparsamer: %sx%s, %s Vorlagebild(er)", *tries[i + 1][:2], len(tries[i + 1][2]) // 2)
+            continue
         if p.returncode == 0 and Path(out_png).exists():
             if i:
                 log.info("Panel mit Sparversuch %s gemalt (%sx%s)", i, gw, gh)

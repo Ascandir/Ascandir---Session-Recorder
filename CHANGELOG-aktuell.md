@@ -1,3 +1,4 @@
-- **Einzelspur-Bereich immer sichtbar im Aufnahme-Tab:** Zeigt, ob das Vesktop-Plugin verbunden ist, ob du in einem Sprachkanal bist, und dann die Personen-Liste zum An- und Abwählen
-- **Veraltetes Plugin wird erkannt:** Ein Klick auf „Plugin jetzt aktualisieren“ beendet Vesktop kurz, spielt das neue Plugin ein und startet Vesktop wieder – kein Umweg über die Einstellungen mehr
-- Klarstellung im Tool: Abwählen betrifft nur die Aufnahme, in Discord hörst du alle ganz normal weiter
+- **Comic: Panels mit vielen Figuren sprengen nicht mehr den Grafikspeicher.** Bei Panel 6 (vier Figuren, vier Vorlagebilder, Hochformat) lief der Grafikspeicher über; Windows lagerte in den Arbeitsspeicher aus, ein Malschritt dauerte 76 statt 5 Sekunden und der Prozessor glühte
+- Höchstens 3 Vorlagebilder pro Panel (eins pro Figur), kleiner aufbereitet (512 statt 768 Pixel)
+- Das Textmodell bleibt im Arbeitsspeicher und belegt keine 4 GB Grafikspeicher mehr, solange gemalt wird
+- Neuer Tempo-Wächter: Wird ein Malschritt verdächtig langsam (über 30 s), bricht das Tool sofort ab und malt das Panel sparsamer neu (kleiner, weniger Vorlagen) – statt minutenlang die CPU zu heizen
