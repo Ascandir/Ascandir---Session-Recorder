@@ -28,7 +28,7 @@ MODELLE = {
     # Q5/Q4 statt Q8: passt mit Arbeitsspeicher fürs Rechnen in 16 GB Grafikspeicher (Q8 lief über)
     "qualitaet": {"name": "Hohe Qualität (FLUX.2-klein 9B)", "groesse": "ca. 12 GB", "rev": 2,
                   "diff": ["leejet/FLUX.2-klein-9B-GGUF", "unsloth/FLUX.2-klein-9B-GGUF"],
-                  "diff_pref": ["Q5_K_M", "Q5_K_S", "Q4_K_M", "Q6_K"],
+                  "diff_pref": ["Q5_K_M", "Q5_K_S", "Q5_0", "Q6_K", "Q4_K_M", "Q4_0"],
                   "llm": ["unsloth/Qwen3-8B-GGUF"], "llm_pref": ["Q4_K_M", "Q5_K_M", "Q4_K_S"],
                   "offload": True},
     "schnell": {"name": "Schnell (FLUX.2-klein 4B)", "groesse": "ca. 9 GB",
@@ -431,9 +431,40 @@ def _supports(exe, flag):
     return flag in _HELP[exe]
 
 
-def _run_sd(cmd, exe):
-    return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                          creationflags=NOWIN, cwd=str(exe.parent), env=C.ORIG_ENV)
+CURRENT = {"proc": None, "abbruch": False}
+
+
+class _Res:
+    def __init__(self, rc, out):
+        self.returncode, self.stdout, self.stderr = rc, out, ""
+
+
+def _run_sd(cmd, exe, logfile=None):
+    """sd-cli starten; Ausgabe ins Comic-Protokoll; per Abbrechen beendbar."""
+    if CURRENT["abbruch"]:
+        raise RuntimeError("Abgebrochen.")
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                         errors="replace", creationflags=NOWIN, cwd=str(exe.parent), env=C.ORIG_ENV)
+    CURRENT["proc"] = p
+    out = p.communicate()[0]
+    CURRENT["proc"] = None
+    if logfile:
+        with open(logfile, "a", encoding="utf-8") as f:
+            f.write("\n===== " + " ".join(x if " " not in x else f'"{x[:60]}…"' for x in cmd[1:]) + "\n" + out)
+    if CURRENT["abbruch"]:
+        raise RuntimeError("Abgebrochen.")
+    return _Res(p.returncode, out)
+
+
+def kill():
+    """Abbrechen-Knopf: laufendes Malen sofort beenden."""
+    CURRENT["abbruch"] = True
+    p = CURRENT["proc"]
+    if p and p.poll() is None:
+        try:
+            p.kill()
+        except Exception:
+            pass
 
 
 def generate_panel(prompt, refs, out_png, seed, w=1024, h=768, plan=None, m=None):
@@ -448,33 +479,37 @@ def generate_panel(prompt, refs, out_png, seed, w=1024, h=768, plan=None, m=None
     log.info("Panel malen: %s – Figuren: %s – %s Referenzbild(er)", Path(out_png).name,
              ", ".join(r["anzeige"] for r in refs) or "keine erkannt", len(ref_args) // 2)
 
-    def build(gw, gh, refs_args, disk=False):
+    def build(gw, gh, refs_args, spar=False):
         cmd = [str(exe), "--diffusion-model", str(DIR / ms["diffusion"]), "--vae", str(VAE_FILE),
                "--llm", str(DIR / ms["llm"]), "-p", prompt, "--cfg-scale", "1.0", "--steps", "4",
                "-W", str(gw), "-H", str(gh), "-s", str(seed), "-o", str(out_png),
                "--diffusion-fa", "--vae-tiling"]
-        if MODELLE[m]["offload"]:
-            # Gewichte im Arbeitsspeicher, nur bei Bedarf auf die Grafikkarte; 1 GB Reserve für Windows/Discord
+        if _supports(exe, "--backend"):
+            cmd += ["--backend", "vulkan0"]            # Rechnen immer auf der Grafikkarte, nie auf dem Prozessor
+        if _supports(exe, "--max-vram"):
+            cmd += ["--max-vram", "-1"]                # ~1 GB für Windows/Discord frei lassen
+        if spar and _supports(exe, "--params-backend"):
+            # Notlösung bei knappem Speicher: Gewichte im RAM, Textmodell nach dem Lesen wieder freigeben
+            cmd += ["--params-backend", "all=cpu,te=disk"]
+        elif spar:
             cmd += ["--offload-to-cpu"]
-            if _supports(exe, "--max-vram"):
-                cmd += ["--max-vram", "-1"]
-        if disk and _supports(exe, "--params-backend"):
-            cmd += ["--params-backend", "te=disk"]     # Textmodell nach dem Lesen des Prompts wieder freigeben
         return cmd + refs_args
 
     # Versuche: normal → kleiner gemalt → zusätzlich Textmodell von der Platte → mit weniger Vorlagen
     small = gen_size(w, h, mp=0.7)
-    big = MODELLE[m]["offload"]
-    tries = [(w, h, ref_args, big), (*small, ref_args, True), (*gen_size(w, h, mp=0.55), ref_args[:4], True)]
+    # 1. Versuch: sd.cpp verteilt selbst (alles auf die Grafikkarte, was passt) – 2./3.: sparsam
+    tries = [(w, h, ref_args, False), (*small, ref_args, True), (*gen_size(w, h, mp=0.55), ref_args[:4], True)]
+    sdlog = Path(out_png).parent / "bildgenerator.log"
     t0 = time.time()
     last = ""
     for i, (gw, gh, ra, disk) in enumerate(tries):
         Path(out_png).unlink(missing_ok=True)
-        p = _run_sd(build(gw, gh, ra, disk), exe)
+        p = _run_sd(build(gw, gh, ra, disk), exe, sdlog)
         if p.returncode == 0 and Path(out_png).exists():
             if i:
                 log.info("Panel mit Sparversuch %s gemalt (%sx%s)", i, gw, gh)
-            log.info("Panel fertig in %.0f s", time.time() - t0)
+            dev = next((l.strip() for l in p.stdout.splitlines() if "ggml_vulkan: 0 =" in l), "")
+            log.info("Panel fertig in %.0f s%s", time.time() - t0, f" ({dev.split('=', 1)[-1].split('|')[0].strip()})" if dev else "")
             return
         last = "\n".join((p.stdout + p.stderr).strip().splitlines()[-12:])
         log.error("Bildgenerator-Fehler (Code %s, Versuch %s):\n%s", p.returncode, i + 1, last)
@@ -735,6 +770,7 @@ def run(state, progress=lambda f, m: None, style=None, fmt=None):
     panels = parse_template(tpl.read_text(encoding="utf-8"))
     if not panels:
         raise RuntimeError("In der Comic-Vorlage wurden keine Panels gefunden.")
+    CURRENT["abbruch"] = False
     m = modell()
     if not installed(m):
         install(lambda f, msg: progress(0.02 + 0.28 * f, msg), m)

@@ -53,6 +53,17 @@ def _safe(fn):
         return f"(Fehler: {e})"
 
 
+def _sd_log():
+    from . import config as C
+    logs = sorted(C.SESSIONS.glob("*/*/comic/bildgenerator.log"), key=lambda p: p.stat().st_mtime)
+    if not logs:
+        return "(keins)"
+    lines = logs[-1].read_text(encoding="utf-8", errors="replace").splitlines()
+    keep = [l for l in lines if l.startswith("=====") or "vulkan" in l.lower() or "backend" in l.lower()
+            or "[E]" in l or "[W]" in l or "taking" in l or "completed" in l]
+    return "\n".join(l[:400] for l in keep[-60:])
+
+
 def _plugin_log():
     from . import config as C
     logs = sorted(C.recordings_dir().glob("*_spuren/plugin.log"), key=lambda p: p.stat().st_mtime)
@@ -91,6 +102,7 @@ def report():
         f"Laufende Strata-Prozesse: {_safe(_strata_procs)}",
         f"Vesktop/Plugin: {_safe(lambda: __import__('chronist.vesktop', fromlist=['x']).status_text())}",
         f"Vesktop-Plugin-Protokoll (letzte Aufnahme):\n{_safe(_plugin_log)}",
+        f"Bildgenerator-Protokoll (letzter Comic):\n{_safe(_sd_log)}",
         "",
         "----- Aufnahme -----",
         f"Discord-Prozess: {_safe(find_discord)}",

@@ -140,6 +140,11 @@ def _busy_guard(fn):
 def do_cancel():
     log.info("Abbrechen gedrückt")
     try:
+        from . import comic as CO
+        CO.kill()
+    except Exception:
+        log.exception("Fehler beim Beenden des Bildgenerators")
+    try:
         L.stop_all()
     except Exception:
         log.exception("Fehler beim Beenden der KI")

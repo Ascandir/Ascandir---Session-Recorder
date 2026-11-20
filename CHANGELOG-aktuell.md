@@ -1,3 +1,3 @@
-- **Comic mit „Hohe Qualität“ läuft jetzt auf 16 GB Grafikspeicher:** Das 9B-Modell nutzt nun eine kleinere Variante (Q5 statt Q8, kaum sichtbarer Unterschied), das Textmodell wird nach dem Lesen des Prompts wieder freigegeben, und 1 GB bleibt für Windows und Discord frei. Die alten, größeren Dateien werden automatisch gelöscht und die neuen geladen (ca. 12 GB statt 20 GB)
-- Reicht der Speicher trotzdem nicht, malt das Tool das Panel automatisch kleiner bzw. mit weniger Vorlagebildern, statt abzubrechen
-- Klare Fehlermeldung, wenn ein anderes Programm (Strata, Spiel, Browser) den Grafikspeicher belegt
+- **Comic rechnet wieder auf der Grafikkarte statt auf dem Prozessor:** Der Bildgenerator wird jetzt fest auf die Grafikkarte gesetzt und verteilt die Modelle selbst so, dass möglichst alles in den Grafikspeicher passt. Das Auslagern in den Arbeitsspeicher, das in 2.5.1 den Prozessor zum Glühen brachte, ist nur noch die Notlösung, wenn der Speicher nicht reicht
+- „Abbrechen“ beendet jetzt auch ein laufendes Comic-Malen sofort
+- Die komplette Ausgabe des Bildgenerators landet im Session-Ordner unter `comic\bildgenerator.log` und gekürzt im Debug-Log
