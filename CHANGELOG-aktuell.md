@@ -1,4 +1,6 @@
-- **🐾 Gefährten & weitere Figuren:** Jedem Spieler (und dir) lassen sich beliebig viele weitere Figuren zuordnen – tierische Gefährten, Reittiere, Vertraute, Begleiter (Tab 👥 Gruppe, neue Tabelle „Gehört zu / Name / Art“)
-- Jede Figur bekommt eine eigene Karte mit **Bild** und **Aussehen**, genau wie die Hauptcharaktere
-- Chronik und Comic-Vorlage wissen, wem welche Figur gehört, und zeigen Gefährten bei ihrem Besitzer; die Spracherkennung kennt die Namen
-- Hinweis beim Speichern, wenn „Gehört zu“ kein Mitglied der Gruppe ist
+- **🎨 Comic-Seiten mit einem Klick:** Im Ergebnis-Tab „🎨 Comic“ malt das Tool aus der Comic-Vorlage jedes Panel lokal auf deiner Grafikkarte (FLUX.2-klein über stable-diffusion.cpp, Vulkan) und setzt die Bilder mit Sprechblasen zu A4-Seiten zusammen, als PNG und als Comic.pdf
+- Die Bilder deiner Charaktere dienen beim Malen als Vorlage (bis zu 4 Referenzbilder pro Panel), damit die Figuren wiedererkennbar bleiben
+- Neues Häkchen „🎨 Comic-Seiten direkt malen“: Analyse, Chronik und Comic laufen dann in einem Rutsch
+- In den Sprechblasen stehen die Charakternamen statt der Spielernamen
+- **🧙 Neuer Charakter-Editor:** Beliebig viele Charaktere anlegen (Hauptcharakter, Gefährte, Reittier, Vertrauter, NPC …) und Spielern zuweisen, jeweils mit Aussehen und **mehreren Bildern** (z. B. Turnaround). Bestehende Charaktere und Figuren werden automatisch übernommen
+- Einstellungen: Status und Installation des Bildgenerators (ca. 9 GB, im Programmordner), eigener Zeichenstil; Speicherübersicht zeigt den Bildgenerator
