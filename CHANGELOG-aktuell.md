@@ -1,4 +1,2 @@
-- **🔇 Stumm heißt jetzt wirklich: gar nicht aufgenommen.** Ist das Vesktop-Plugin beim Start der Aufnahme verbunden, nimmt der SessionRecorder den Discord-Gesamtton nicht mehr mit – Discord kommt dann ausschließlich über die Einzelspuren der angehakten Personen. Wer keinen Haken hat, ist nirgends zu hören, auch nicht in der MP3
-- Haken mitten in der Aufnahme weg = ab sofort stumm (z. B. für ein privates Gespräch), Haken wieder dran = wird wieder aufgenommen. Wer beim Beenden noch stumm ist, wird komplett verworfen
-- Die Discord-Spur in der Aufnahme und die MP3 werden aus den angehakten Einzelspuren gemischt
-- Aufnahme-Tab warnt, falls das Plugin während der Aufnahme die Verbindung verliert
+- **Comic läuft wieder mit dem bewährten Modell „Schnell“ (4B):** Das große 9B-Modell blieb auf der RX 9070 XT beim Malen hängen (Prozessor voll, Grafikkarte im Leerlauf). Wer es eingestellt hatte, wird einmalig auf „Schnell“ zurückgestellt. „Hohe Qualität“ bleibt als experimentelle Option wählbar
+- Neuer Wächter: Macht der Bildgenerator 4 Minuten lang keinen Fortschritt, wird er beendet. Beim 9B-Modell malt das Tool dann automatisch mit „Schnell“ weiter und merkt sich das

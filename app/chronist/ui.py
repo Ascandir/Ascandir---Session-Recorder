@@ -687,13 +687,16 @@ def draw_status_text():
     for k, v in CO.MODELLE.items():
         mark = "✅ installiert" if CO.installed(k) else f"nicht installiert ({v['groesse']}, wird beim ersten Comic geladen)"
         akt = " ← **aktiv**" if k == CO.modell() else ""
+        if k == "qualitaet" and C.settings().get("comic_9b_haengt"):
+            akt += " ⚠️ ist auf deinem PC hängengeblieben – „Schnell“ wird benutzt (zum erneuten Versuch hier wählen und speichern)"
         lines.append(f"- {v['name']}: {mark}{akt}")
     return "\n".join(lines) + f"\n\nFormat: **{CO.FORMATE[CO.comic_format()]}**"
 
 
 def save_comic_settings(model_name, fmt_name, style):
     from . import comic as CO
-    C.save("einstellungen", {**C.settings(), "comic_modell": CO.MODELL_NAMEN.get(model_name, "qualitaet"),
+    C.save("einstellungen", {**C.settings(), "comic_modell": CO.MODELL_NAMEN.get(model_name, "schnell"),
+                             "comic_9b_haengt": False,
                              "comic_format": CO.FORMAT_NAMEN.get(fmt_name, "manhwa"),
                              "comic_stil": (style or "").strip()})
     return "💾 Gespeichert.\n\n" + draw_status_text()
@@ -1214,8 +1217,9 @@ def build():
             with gr.Row():
                 comic_model = gr.Dropdown([v["name"] for v in _comic.MODELLE.values()], label="Bildmodell",
                                           value=_comic.MODELLE[_comic.modell()]["name"],
-                                          info="Hohe Qualität ist langsamer (grob 1–2 Min. pro Panel), hält die "
-                                               "Charaktere aber deutlich besser")
+                                          info="Hohe Qualität (9B) ist experimentell: langsamer, hält die Charaktere besser, "
+                                               "lief aber noch nicht auf jeder Grafikkarte. Hängt es, wechselt das "
+                                               "Tool automatisch auf Schnell.")
                 comic_fmt = gr.Dropdown(list(_comic.FORMATE.values()), label="Comic-Format",
                                         value=_comic.FORMATE[_comic.comic_format()])
             _own = (st.get("comic_stil") or "").strip()
@@ -1423,6 +1427,10 @@ def launch():
     try:
         from . import comic as _co
         _co.kill_stale()          # Reste eines abgebrochenen Comic-Laufs
+        st = C.settings()
+        if "comic_9b_haengt" not in st and st.get("comic_modell") == "qualitaet":
+            # 2.5.x: 9B hing auf der RX 9070 XT → einmalig auf „Schnell“ zurück, Neuversuch per Einstellung
+            C.save("einstellungen", {**st, "comic_9b_haengt": True})
     except Exception:
         pass
     from .recorder import start_bridge

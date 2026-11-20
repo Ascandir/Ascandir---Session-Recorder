@@ -41,8 +41,11 @@ MODELL_NAMEN = {v["name"]: k for k, v in MODELLE.items()}
 
 
 def modell():
-    m = C.settings().get("comic_modell") or "qualitaet"
-    return m if m in MODELLE else "qualitaet"
+    st = C.settings()
+    m = st.get("comic_modell") or "schnell"
+    if m == "qualitaet" and st.get("comic_9b_haengt"):
+        return "schnell"                 # auf diesem PC schon einmal hängengeblieben
+    return m if m in MODELLE else "schnell"
 
 
 FORMATE = {
@@ -432,6 +435,11 @@ def _supports(exe, flag):
 
 
 CURRENT = {"proc": None, "abbruch": False}
+HANG_SECONDS = 240          # so lange ohne neue Ausgabe = hängt
+
+
+class Hang(RuntimeError):
+    """Der Bildgenerator macht keinen Fortschritt mehr (z. B. Treiberproblem mit dem großen Modell)."""
 
 
 class _Res:
@@ -452,13 +460,29 @@ def _run_sd(cmd, exe, logfile=None):
         p = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, creationflags=NOWIN,
                              cwd=str(exe.parent), env=C.ORIG_ENV)
         CURRENT["proc"] = p
-        p.wait()
+        # Wächter: tut sich im Protokoll minutenlang nichts, hängt der Bildgenerator → beenden
+        last_size, last_change, hung = -1, time.time(), False
+        while p.poll() is None:
+            try:
+                p.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+            size = logfile.stat().st_size
+            if size != last_size:
+                last_size, last_change = size, time.time()
+            elif time.time() - last_change > HANG_SECONDS:
+                hung = True
+                log.warning("Bildgenerator hängt seit %s s ohne Fortschritt – wird beendet", HANG_SECONDS)
+                p.kill()
+                p.wait()
         CURRENT["proc"] = None
     with open(logfile, "rb") as f:
         f.seek(start)
         out = f.read().decode("utf-8", "replace")
     if CURRENT["abbruch"]:
         raise RuntimeError("Abgebrochen.")
+    if hung:
+        raise Hang(out)
     return _Res(p.returncode, out)
 
 
@@ -832,7 +856,18 @@ def run(state, progress=lambda f, m: None, style=None, fmt=None):
         (out / "panels.txt").write_text("\n".join(protokoll), encoding="utf-8")
         bw, bh = sl["box"][2] - sl["box"][0], sl["box"][3] - sl["box"][1]
         gw, gh = gen_size(bw, bh)
-        generate_panel(prompt, refs, png, seed + i, w=gw, h=gh, plan=plan, m=m)
+        try:
+            generate_panel(prompt, refs, png, seed + i, w=gw, h=gh, plan=plan, m=m)
+        except Hang:
+            if m != "qualitaet":
+                raise RuntimeError("Der Bildgenerator hängt und macht keinen Fortschritt. Bitte schick den Debug-Log.")
+            log.warning("Hohe Qualität hängt auf diesem PC – wechsle auf „Schnell“ und male weiter")
+            C.save("einstellungen", {**C.settings(), "comic_9b_haengt": True})
+            m = "schnell"
+            if not installed(m):
+                install(lambda f, msg: progress(0.3, msg), m)
+            progress(0.3 + 0.67 * i / len(panels), "Hohe Qualität hing – male mit „Schnell“ weiter …")
+            generate_panel(prompt, refs, png, seed + i, w=gw, h=gh, plan=plan, m=m)
         images.append(str(png))
     progress(0.97, "Seiten werden zusammengesetzt …")
     names = {}
