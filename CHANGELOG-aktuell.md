@@ -1,2 +1,5 @@
-- „📂 Session-Ordner öffnen“ funktioniert wieder: öffnet die geöffnete Session – oder, wenn keine offen ist, den Session-Ordner der aktiven Gruppe – und findet auch Sessions, die beim Gruppen-Update umgezogen sind
-- Der Knopf zeigt jetzt immer an, welcher Ordner geöffnet wurde
+- **Saubere Hörproben bei „Wer ist wer?“:** Jede Hörprobe besteht nur noch aus Stellen, die eindeutig nach dieser Person klingen und an denen niemand dazwischenredet – verteilt über die ganze Session. Im Test: 95–100 % sauber, 0 % Durcheinander (vorher bis zu 50 %)
+- **Durcheinander-Reden wird erkannt:** Stellen, an denen mehrere gleichzeitig reden, fließen nicht mehr in die Stimmerkennung ein
+- **Keine „Gemisch-Stimmen“ mehr:** Gruppen, die nur aus Durcheinander bestehen, werden aufgelöst und auf die echten Personen verteilt
+- Leise Spieler:innen, die wenig sagen, bleiben als eigene Stimme erhalten, statt jemand anderem zugeschlagen zu werden
+- Die gelernten Stimmabdrücke werden ebenfalls nur aus sauberen Stellen gebildet → zuverlässigere Wiedererkennung

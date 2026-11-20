@@ -78,35 +78,78 @@ def _spread_parts(segs, k, n=4, max_len=5.0):
     return out
 
 
+def _clean_parts(wins, k, n_bins=4, per_bin=2, max_total=14.0):
+    """Hörprobe nur aus Stellen, die eindeutig nach dieser Person klingen und an denen niemand
+    dazwischenredet – verteilt über Anfang, Mitte und Ende."""
+    mine = [w for w in wins if w[2] == k and not w[4]]
+    if len(mine) < 3:
+        mine = [w for w in wins if w[2] == k]
+    if not mine:
+        return []
+    cut = sorted(w[3] for w in mine)[int(len(mine) * 0.5)]        # obere Hälfte nach Eindeutigkeit
+    good = sorted([w for w in mine if w[3] >= cut], key=lambda w: w[0])
+    picks = []
+    for b in range(n_bins):
+        chunk = good[b * len(good) // n_bins:(b + 1) * len(good) // n_bins]
+        picks += sorted(chunk, key=lambda w: -w[3])[:per_bin]
+    picks.sort()
+    parts, total = [], 0.0
+    for t0, t1, *_ in picks:
+        if parts and t0 <= parts[-1][1] + 0.05:
+            parts[-1] = (parts[-1][0], max(parts[-1][1], t1))
+        else:
+            parts.append((t0, t1))
+    out = []
+    for s, e in parts:
+        if total >= max_total:
+            break
+        e = min(e, s + (max_total - total))
+        out.append((s, e))
+        total += e - s
+    return out
+
+
 def _voices(dis, n_spk, out, progress):
     """Stimmen trennen, Kleinstgruppen zusammenlegen, Stimmabdrücke + Hörproben, Vorschläge."""
     st = C.settings()
     n_groups = int(n_spk) + EXTRA_STIMMEN if n_spk else 0
-    segs = D.diarize_fine(dis, n_groups, progress) if n_groups else D.diarize(dis, 0, progress)
+    if n_groups:
+        segs, wins = D.diarize_fine(dis, n_groups, progress, return_windows=True)
+    else:
+        segs, wins = D.diarize(dis, 0, progress), []
     clusters = sorted({k for _, _, k in segs})
     log.info("Stimmtrennung: %s Gruppen (angefragt %s), %s Abschnitte", len(clusters), n_groups, len(segs))
 
-    embs = {k: D.embed(dis, D.cluster_parts(segs, k)) for k in clusters}
+    def parts_for(k):
+        cp = _clean_parts(wins, k, n_bins=6, per_bin=3, max_total=30) if wins else []
+        return cp or D.cluster_parts(segs, k)
+
+    embs = {k: D.embed(dis, parts_for(k)) for k in clusters}
     dauer = {k: sum(e - s for s, e, kk in segs if kk == k) for k in clusters}
 
     # Kleinstgruppen der ähnlichsten großen Gruppe zuschlagen (Grenze wächst mit der Länge der Aufnahme)
     total = sum(dauer.values()) or 1
-    grenze = max(3.0, min(MIN_SEKUNDEN, 0.015 * total))
+    grenze = max(1.5, min(MIN_SEKUNDEN, 0.015 * total))
     big = [k for k in clusters if dauer[k] >= grenze and embs[k] is not None]
     if big:
         remap = {}
         for k in clusters:
             if k in big:
                 continue
-            if embs[k] is None:
-                remap[k] = max(big, key=lambda b: dauer[b])
-            else:
-                remap[k] = max(big, key=lambda b: float(embs[b] @ embs[k]))
+            if embs[k] is None or dauer[k] < 0.8:
+                remap[k] = max(big, key=lambda b: dauer[b]) if embs[k] is None else \
+                    max(big, key=lambda b: float(embs[b] @ embs[k]))
+                continue
+            best = max(big, key=lambda b: float(embs[b] @ embs[k]))
+            if float(embs[best] @ embs[k]) >= 0.45:
+                remap[k] = best          # klingt nach jemandem → dazulegen
+            # sonst: eigene Person, die nur wenig sagt → bleibt eine eigene Stimme
         if remap:
             log.info("Kleinstgruppen zusammengelegt: %s", remap)
             segs = [(s, e, remap.get(k, k)) for s, e, k in segs]
-            clusters = big
-            embs = {k: D.embed(dis, D.cluster_parts(segs, k)) for k in clusters}
+            wins = [(a, b, remap.get(k, k), sim, ov) for a, b, k, sim, ov in wins]
+            clusters = [k for k in clusters if k not in remap]
+            embs = {k: D.embed(dis, parts_for(k)) for k in clusters}
             dauer = {k: sum(e - s for s, e, kk in segs if kk == k) for k in clusters}
 
     # Nach Redeanteil sortieren (wer am meisten spricht, steht oben)
@@ -117,10 +160,11 @@ def _voices(dis, n_spk, out, progress):
     stimmen = []
     for nr, k in enumerate(clusters, 1):
         name, sim = matches.get(k, (None, 0.0))
-        clip = A.write_clip(dis, _spread_parts(segs, k), out / f"stimme_{nr}.wav", max_len=16.0)
+        parts = (_clean_parts(wins, k) if wins else []) or _spread_parts(segs, k)
+        clip = A.write_clip(dis, parts, out / f"stimme_{nr}.wav", max_len=16.0)
         stimmen.append({
             "id": f"S{k}", "nr": nr, "vorschlag": name or "", "aehnlichkeit": round(sim, 2),
-            "clip": clip, "dauer": round(dauer[k], 1),
+            "clip": clip, "dauer": round(dauer[k], 1), "clip_teile": parts,
             "embedding": embs[k].tolist() if embs[k] is not None else None,
         })
     return segs, stimmen

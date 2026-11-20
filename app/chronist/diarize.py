@@ -37,16 +37,46 @@ def diarize(audio, num_speakers=0, progress=None):
     return [(float(s.start), float(s.end), int(s.speaker)) for s in res]
 
 
-def diarize_fine(audio, n_groups, progress=None, win=1.5, step=0.75, max_link=6000):
+def _overlap_intervals(base, margin=1.0):
+    """Zeiten, in denen sherpa mehrere Sprecher gleichzeitig erkennt (Durcheinander)."""
+    ev = []
+    for s, e, _ in base:
+        ev += [(s, 1), (e, -1)]
+    ev.sort()
+    out, active, start = [], 0, None
+    for t, d in ev:
+        prev = active
+        active += d
+        if prev < 2 <= active:
+            start = t
+        elif prev >= 2 > active and start is not None:
+            if t - start > 0.2:
+                out.append((max(0.0, start - margin), t + margin))   # Ränder großzügig mitnehmen
+            start = None
+    return out
+
+
+def _hits(t0, t1, intervals, min_ov=0.25):
+    for a, b in intervals:
+        if min(t1, b) - max(t0, a) > min_ov:
+            return True
+        if a > t1:
+            break
+    return False
+
+
+def diarize_fine(audio, n_groups, progress=None, win=1.5, step=0.75, max_link=6000, return_windows=False):
     """Genauere Stimmtrennung: kurze Fenster einzeln per Stimmabdruck gruppieren.
 
-    1. sherpa liefert fein unterteilte Sprechabschnitte (Grenzen)
+    1. sherpa liefert fein unterteilte Sprechabschnitte (Grenzen) und Stellen mit Durcheinander
     2. jeder Abschnitt wird in 1,5-s-Fenster zerlegt, jedes Fenster bekommt einen Stimmabdruck
-    3. hierarchische Gruppierung (Kosinus, mittlere Verknüpfung) in n_groups Gruppen
+    3. hierarchische Gruppierung nur aus "sauberen" Fenstern (niemand redet dazwischen)
+    4. Gruppen, die nur aus Gemisch bestehen (in sich uneinheitlich), werden aufgelöst
     """
     from scipy.cluster.hierarchy import fcluster, linkage
     prog = progress or (lambda f: None)
     base = diarize(audio, max(12, n_groups * 3), lambda f: prog(0.45 * f))
+    overl = _overlap_intervals(base)
     ext = _get_extractor()
     wins, vecs = [], []
     for i, (s, e, _) in enumerate(base):
@@ -63,24 +93,57 @@ def diarize_fine(audio, n_groups, progress=None, win=1.5, step=0.75, max_link=60
             st = ext.create_stream()
             st.accept_waveform(SR, x)
             st.input_finished()
-            wins.append((i, t0, t1))
+            wins.append([i, t0, t1, _hits(t0, t1, overl)])
             vecs.append(_norm(ext.compute(st)))
         if i % 50 == 0:
             prog(0.45 + 0.4 * i / max(1, len(base)))
     if len(vecs) < n_groups:
-        return base
+        return (base, []) if return_windows else base
     X = np.stack(vecs)
+    clean = np.array([not w[3] for w in wins])
+    pool = np.where(clean)[0] if clean.sum() >= n_groups * 4 else np.arange(len(X))
     rng = np.random.default_rng(0)
-    idx = np.arange(len(X)) if len(X) <= max_link else np.sort(rng.choice(len(X), max_link, replace=False))
+    idx = pool if len(pool) <= max_link else np.sort(rng.choice(pool, max_link, replace=False))
     Z = linkage(X[idx], method="average", metric="cosine")
     lab_sub = fcluster(Z, n_groups, criterion="maxclust") - 1
-    cent = np.stack([_norm(X[idx][lab_sub == k].mean(axis=0)) for k in range(lab_sub.max() + 1)])
-    labels = np.argmax(X @ cent.T, axis=1)
+    groups = [k for k in range(lab_sub.max() + 1) if (lab_sub == k).sum() > 0]
+    cent = {k: _norm(X[idx][lab_sub == k].mean(axis=0)) for k in groups}
+    # Gemisch-Gruppen auflösen: Fenster ähneln dem eigenen Mittelpunkt kaum
+    coh = {k: float(np.mean(X[idx][lab_sub == k] @ cent[k])) for k in groups}
+    keep = [k for k in groups if coh[k] >= 0.45 or len(groups) <= n_groups // 2]
+    # zweite Prüfung über alle Fenster: Gruppen, deren Fenster meist im Durcheinander liegen
+    if len(keep) > 2:
+        sims0 = X @ np.stack([cent[k] for k in keep]).T
+        lab0 = np.array(keep)[np.argmax(sims0, axis=1)]
+        ovl = np.array([w[3] for w in wins])
+        mix = [k for k in keep if (lab0 == k).sum() > 0 and ovl[lab0 == k].mean() >= 0.5]
+        if mix and len(keep) - len(mix) >= 2:
+            keep = [k for k in keep if k not in mix]
+            try:
+                from .debuglog import log
+                log.info("Durcheinander-Gruppen aufgelöst: %s", mix)
+            except Exception:
+                pass
+    if len(keep) < len(groups):
+        log_dissolved = [k for k in groups if k not in keep]
+        try:
+            from .debuglog import log
+            log.info("Gemisch-Gruppen aufgelöst: %s (Zusammenhalt %s)", log_dissolved,
+                     {k: round(coh[k], 2) for k in log_dissolved})
+        except Exception:
+            pass
+    C_ = np.stack([cent[k] for k in keep])
+    sims = X @ C_.T
+    labels = np.array(keep)[np.argmax(sims, axis=1)]
+    best = sims.max(axis=1)
+    for w, lab, sim in zip(wins, labels, best):
+        w += [int(lab), float(sim)]          # [i, t0, t1, overlap, label, sim]
+    cent_arr = C_
     prog(0.9)
     # Abschnitte entlang der Fensterbeschriftung neu zuschneiden
     by_seg = {}
-    for (i, t0, t1), lab in zip(wins, labels):
-        by_seg.setdefault(i, []).append((t0, t1, int(lab)))
+    for w in wins:
+        by_seg.setdefault(w[0], []).append((w[1], w[2], w[4]))
     out = []
     for i, (s, e, _) in enumerate(base):
         ws = by_seg.get(i)
@@ -94,26 +157,27 @@ def diarize_fine(audio, n_groups, progress=None, win=1.5, step=0.75, max_link=60
                 out.append([cur_s, cut, cur_l])
                 cur_s, cur_l = cut, ws[j][2]
         out.append([cur_s, e, cur_l])
-    # sehr kurze Abschnitte ohne Fenster: Stimmabdruck des Abschnitts → nächste Gruppe
-    for seg in out:
+    for n_, seg in enumerate(out):
         if seg[2] is None:
             x = audio[int(seg[0] * SR):int(seg[1] * SR)]
             if len(x) >= SR * 0.3:
                 st = ext.create_stream()
                 st.accept_waveform(SR, x)
                 st.input_finished()
-                seg[2] = int(np.argmax(cent @ _norm(ext.compute(st))))
+                seg[2] = int(keep[int(np.argmax(cent_arr @ _norm(ext.compute(st))))])
             else:
-                seg[2] = out[out.index(seg) - 1][2] if out.index(seg) > 0 and out[out.index(seg) - 1][2] is not None else 0
-    # benachbarte Stücke derselben Gruppe verbinden
+                seg[2] = out[n_ - 1][2] if n_ > 0 and out[n_ - 1][2] is not None else int(keep[0])
     merged = []
-    for s, e, k in out:
+    for s, e, k in sorted(out):
         if merged and merged[-1][2] == k and s - merged[-1][1] < 0.3:
-            merged[-1][1] = e
+            merged[-1][1] = max(merged[-1][1], e)
         else:
             merged.append([s, e, k])
     prog(1.0)
-    return [(float(s), float(e), int(k)) for s, e, k in merged]
+    segs = [(float(s), float(e), int(k)) for s, e, k in merged]
+    if return_windows:
+        return segs, [(w[1], w[2], w[4], w[5], w[3]) for w in wins]   # (t0, t1, label, sim, overlap)
+    return segs
 
 
 _extractor = None
