@@ -335,40 +335,60 @@ def assign_refs(refs, max_images=4):
     return [(r, imgs) for r, imgs in plan if imgs]
 
 
+def _norm_size(im, bg, long_side=768, mult=64):
+    """Vorlagebild auf eine Größe bringen, mit der FLUX sauber rechnet: lange Seite ~768 px,
+    beide Seiten Vielfache von 64 (mit Hintergrundfarbe aufgefüllt, nichts verzerrt).
+    Krumme Größen (z. B. 222x512) ließen den Bildgenerator auf der Grafikkarte hängen."""
+    from PIL import Image
+    w, h = im.size
+    sc = long_side / max(w, h)
+    im = im.resize((max(1, round(w * sc)), max(1, round(h * sc))), Image.LANCZOS)
+    W = max(mult * 4, -(-im.width // mult) * mult)
+    H = max(mult * 4, -(-im.height // mult) * mult)
+    canvas = Image.new("RGB", (W, H), bg)
+    canvas.paste(im, ((W - im.width) // 2, (H - im.height) // 2))
+    return canvas
+
+
 def _ref_file(path, cache_dir):
-    """Turnaround-Bögen (mehrere Ansichten nebeneinander) in Einzelansichten zerlegen und die
-    erste (meist Vorderansicht) nehmen – sonst wird jede Figur beim Verkleinern winzig."""
+    """Vorlagebild vorbereiten: Turnaround-Bögen (mehrere Ansichten nebeneinander) zerlegen und die
+    erste Ansicht nehmen, dann auf eine saubere Größe bringen."""
+    from PIL import Image, ImageChops
     try:
-        from PIL import Image, ImageChops
         im = Image.open(path).convert("RGB")
-        w, h = im.size
-        if w < h * 1.5:
-            return path
-        bg = Image.new("RGB", im.size, im.getpixel((2, 2)))
-        diff = ImageChops.difference(im, bg).convert("L").point(lambda v: 255 if v > 28 else 0)
-        cols = [sum(1 for y in range(0, h, 4) if diff.getpixel((x, y))) for x in range(w)]
-        thr = max(1, h // 4 // 100)
-        segs, start = [], None
-        for x, c in enumerate(cols + [0]):
-            if c > thr and start is None:
-                start = x
-            elif c <= thr and start is not None:
-                if x - start > w * 0.06:
-                    segs.append((start, x))
-                start = None
-        if len(segs) < 2:
-            return path
-        x0, x1 = segs[0]
-        pad = int((x1 - x0) * 0.08)
-        crop = im.crop((max(0, x0 - pad), 0, min(w, x1 + pad), h))
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        out = cache_dir / (Path(path).stem + "_ansicht1.png")
-        crop.save(out)
-        log.info("Turnaround erkannt (%s Ansichten): %s → erste Ansicht", len(segs), Path(path).name)
-        return str(out)
     except Exception as e:
-        log.info("Referenzbild unverändert (%s): %s", Path(path).name, e)
+        log.info("Referenzbild nicht lesbar (%s): %s", Path(path).name, e)
         return path
+    bg = im.getpixel((2, 2))
+    name = Path(path).stem
+    try:
+        w, h = im.size
+        if w >= h * 1.5:
+            diff = ImageChops.difference(im, Image.new("RGB", im.size, bg)).convert("L").point(
+                lambda v: 255 if v > 28 else 0)
+            cols = [sum(1 for y in range(0, h, 4) if diff.getpixel((x, y))) for x in range(w)]
+            thr = max(1, h // 4 // 100)
+            segs, start = [], None
+            for x, c in enumerate(cols + [0]):
+                if c > thr and start is None:
+                    start = x
+                elif c <= thr and start is not None:
+                    if x - start > w * 0.06:
+                        segs.append((start, x))
+                    start = None
+            if len(segs) >= 2:
+                x0, x1 = segs[0]
+                pad = int((x1 - x0) * 0.08)
+                im = im.crop((max(0, x0 - pad), 0, min(w, x1 + pad), h))
+                name += "_ansicht1"
+                log.info("Turnaround erkannt (%s Ansichten): %s → erste Ansicht", len(segs), Path(path).name)
+    except Exception as e:
+        log.info("Turnaround-Erkennung übersprungen (%s): %s", Path(path).name, e)
+    out_im = _norm_size(im, bg)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    out = cache_dir / f"{name}_{out_im.width}x{out_im.height}.png"
+    out_im.save(out)
+    return str(out)
 
 
 def _short(text, n=320):
@@ -435,7 +455,7 @@ def _supports(exe, flag):
 
 
 CURRENT = {"proc": None, "abbruch": False}
-HANG_SECONDS = 240          # so lange ohne neue Ausgabe = hängt
+HANG_SECONDS = 150          # so lange ohne neue Ausgabe = hängt (ein Panel braucht normal < 1 Min.)
 
 
 class Hang(RuntimeError):
@@ -859,15 +879,19 @@ def run(state, progress=lambda f, m: None, style=None, fmt=None):
         try:
             generate_panel(prompt, refs, png, seed + i, w=gw, h=gh, plan=plan, m=m)
         except Hang:
-            if m != "qualitaet":
-                raise RuntimeError("Der Bildgenerator hängt und macht keinen Fortschritt. Bitte schick den Debug-Log.")
-            log.warning("Hohe Qualität hängt auf diesem PC – wechsle auf „Schnell“ und male weiter")
-            C.save("einstellungen", {**C.settings(), "comic_9b_haengt": True})
-            m = "schnell"
-            if not installed(m):
-                install(lambda f, msg: progress(0.3, msg), m)
-            progress(0.3 + 0.67 * i / len(panels), "Hohe Qualität hing – male mit „Schnell“ weiter …")
-            generate_panel(prompt, refs, png, seed + i, w=gw, h=gh, plan=plan, m=m)
+            if m == "qualitaet":
+                log.warning("Hohe Qualität hängt auf diesem PC – wechsle auf „Schnell“ und male weiter")
+                C.save("einstellungen", {**C.settings(), "comic_9b_haengt": True})
+                m = "schnell"
+                if not installed(m):
+                    install(lambda f, msg: progress(0.3, msg), m)
+                progress(0.3 + 0.67 * i / len(panels), "Hohe Qualität hing – male mit „Schnell“ weiter …")
+            try:
+                generate_panel(prompt, refs, png, seed + i, w=gw, h=gh, plan=plan, m=m)
+            except Hang:
+                # letzte Rettung: ohne Vorlagebilder malen, damit der Comic fertig wird
+                log.warning("Panel %s hängt auch mit „Schnell“ – male es ohne Vorlagebilder", p["nr"])
+                generate_panel(prompt, refs, png, seed + i, w=gw, h=gh, plan=[], m=m)
         images.append(str(png))
     progress(0.97, "Seiten werden zusammengesetzt …")
     names = {}

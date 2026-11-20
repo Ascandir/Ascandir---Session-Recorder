@@ -1,2 +1,3 @@
-- **Comic läuft wieder mit dem bewährten Modell „Schnell“ (4B):** Das große 9B-Modell blieb auf der RX 9070 XT beim Malen hängen (Prozessor voll, Grafikkarte im Leerlauf). Wer es eingestellt hatte, wird einmalig auf „Schnell“ zurückgestellt. „Hohe Qualität“ bleibt als experimentelle Option wählbar
-- Neuer Wächter: Macht der Bildgenerator 4 Minuten lang keinen Fortschritt, wird er beendet. Beim 9B-Modell malt das Tool dann automatisch mit „Schnell“ weiter und merkt sich das
+- **Comic-Hänger behoben (vermutete Ursache):** Seit der automatischen Turnaround-Zerlegung bekam der Bildgenerator Vorlagebilder mit krummen Größen (z. B. 222×512 Pixel). Damit blieb er auf der Grafikkarte stehen, während der Prozessor heiß lief – egal ob „Schnell“ oder „Hohe Qualität“. Alle Vorlagebilder werden jetzt auf saubere Größen (Vielfache von 64 Pixel) gebracht, ohne verzerrt zu werden
+- Die Sperre für „Hohe Qualität“ aus 2.6.2 wird aufgehoben, weil das Modell gar nicht schuld war
+- Wächter greift jetzt nach 2½ Minuten ohne Fortschritt; hängt ein Panel auch mit „Schnell“, wird es ohne Vorlagebilder gemalt, damit der Comic trotzdem fertig wird

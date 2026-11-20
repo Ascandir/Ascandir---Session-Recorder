@@ -1428,9 +1428,9 @@ def launch():
         from . import comic as _co
         _co.kill_stale()          # Reste eines abgebrochenen Comic-Laufs
         st = C.settings()
-        if "comic_9b_haengt" not in st and st.get("comic_modell") == "qualitaet":
-            # 2.5.x: 9B hing auf der RX 9070 XT → einmalig auf „Schnell“ zurück, Neuversuch per Einstellung
-            C.save("einstellungen", {**st, "comic_9b_haengt": True})
+        if not st.get("comic_fix_263"):
+            # Der Hänger lag an krummen Vorlagebild-Größen, nicht am 9B-Modell → Sperre einmalig aufheben
+            C.save("einstellungen", {**st, "comic_9b_haengt": False, "comic_fix_263": True})
     except Exception:
         pass
     from .recorder import start_bridge
