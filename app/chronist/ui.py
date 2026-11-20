@@ -1017,9 +1017,11 @@ def build():
                                    info="So heißt später die Aufnahme-Datei (mit Datum davor)",
                                    interactive=not REC.running)
             rec_md = gr.Markdown(rec_status())
-            who = gr.CheckboxGroup(label="🎧 Wen aufnehmen? (Einzelspuren über Vesktop)", choices=[], visible=False,
-                                   info="Haken weg = diese Person bekommt keine eigene Spur. Gilt sofort, auch "
-                                        "während der Aufnahme, und wird für die Gruppe gemerkt.")
+            who = gr.CheckboxGroup(label="🎧 Wer wird aufgenommen? (Vesktop)", choices=[], visible=False,
+                                   info="✔ = wird aufgenommen · Haken weg = 🔇 stumm: von dieser Person wird nichts "
+                                        "aufgezeichnet. Wirkt sofort, auch mitten in der Aufnahme (z. B. kurz stumm "
+                                        "für ein privates Gespräch). Wer beim Beenden noch stumm ist, wird komplett "
+                                        "verworfen. Die Auswahl wird für die Gruppe gemerkt.")
             people_timer = gr.Timer(3.0, active=True)
             with gr.Row():
                 rec_start = gr.Button("⏺ Aufnahme starten", variant="primary", size="lg",

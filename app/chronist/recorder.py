@@ -188,6 +188,10 @@ class Recorder:
         self.start_epoch = time.time()
         self.spuren_dir = self.out_path.with_name(self.out_path.stem + "_spuren")
         self.stopping = False
+        # Ist das Vesktop-Plugin da, kommt Discord-Ton NUR über die Einzelspuren der angehakten Personen –
+        # der Gesamt-Mitschnitt von Discord bleibt aus, damit Abgewählte nirgends zu hören sind.
+        self.solo = plugin_connected()
+        log.info("Aufnahme-Modus: %s", "Einzelspuren (Vesktop)" if self.solo else "Discord gesamt")
         self._stream.start()
         log.info("Aufnahme gestartet: %s | Mikro %s (%s Hz, %s Kanäle)", self.out_path.name,
                  dev.get("name"), mic_sr, mic_ch)
@@ -218,6 +222,14 @@ class Recorder:
         """Hängt sich an Discord. Wird Discord neu gestartet, verbindet es sich neu."""
         cap = None
         last_check = time.monotonic()
+        if self.solo:
+            while not self._stop.is_set():
+                self.discord_status = ("🎧 **Einzelspur-Modus:** Discord-Ton kommt nur von den angehakten Personen."
+                                       if plugin_connected() else
+                                       "⚠️ **Vesktop-Plugin nicht verbunden** – von Discord wird gerade nichts "
+                                       "aufgenommen. Läuft Vesktop noch?")
+                self._stop.wait(1)
+            return
         while not self._stop.is_set():
             if cap is None:
                 pid = find_discord()
@@ -289,30 +301,38 @@ class Recorder:
         self.running = False
         log.info("Aufnahme beendet: Mikro %.0f s, Discord %.0f s, Mikro-Stocker: %s",
                  self.mic.written / self.mic.sr, self.dis.written / self.dis.sr, getattr(self, "overflows", 0))
+        dis_src = self.dis.path
+        try:
+            skip = set(C.group(self.group).get("spur_aus", []))
+            n = finish_user_tracks(self.spuren_dir, self.start_epoch, mic_len, skip=skip)
+            if n:
+                log.info("Einzelspuren aus Vesktop gespeichert: %s", n)
+            if self.solo:
+                mixed = mix_user_tracks(self.spuren_dir, self.dis.path.with_name("discord_mix.flac"), mic_len)
+                if mixed:
+                    dis_src = mixed
+        except Exception:
+            log.exception("Einzelspuren konnten nicht verarbeitet werden")
         r = subprocess.run([FFMPEG, "-y", "-hide_banner", "-loglevel", "error",
-                            "-i", str(self.mic.path), "-i", str(self.dis.path),
+                            "-i", str(self.mic.path), "-i", str(dis_src),
                             "-map", "0:a", "-map", "1:a", "-c", "copy",
-                            "-metadata:s:a:0", "title=Mikro", "-metadata:s:a:1", "title=Discord",
+                            "-metadata:s:a:0", "title=Mikro", "-metadata:s:a:1",
+                            "title=" + ("Discord (Einzelspuren gemischt)" if dis_src != self.dis.path else "Discord"),
                             str(self.out_path)], capture_output=True, creationflags=_NOWIN)
         if r.returncode != 0:
             self.error = r.stderr.decode("utf-8", "replace")[-500:]
+            self.stopping = False
             return None
         # Zusätzlich eine normale MP3 zum Anhören (beide Spuren gemischt, lautstärke-angeglichen)
         mp3 = self.out_path.with_suffix(".mp3")
         subprocess.run([FFMPEG, "-y", "-hide_banner", "-loglevel", "error",
-                        "-i", str(self.mic.path), "-i", str(self.dis.path),
+                        "-i", str(self.mic.path), "-i", str(dis_src),
                         "-filter_complex", "[0:a]dynaudnorm=f=200:g=15[a];[1:a]dynaudnorm=f=200:g=15[b];"
                                            "[a][b]amix=inputs=2:normalize=0,alimiter=limit=0.95",
                         "-ac", "1", "-ar", "44100", "-b:a", "96k", str(mp3)],
                        capture_output=True, creationflags=_NOWIN)
-        self.mic.path.unlink(missing_ok=True)
-        self.dis.path.unlink(missing_ok=True)
-        try:
-            n = finish_user_tracks(self.spuren_dir, self.start_epoch, mic_len)
-            if n:
-                log.info("Einzelspuren aus Vesktop gespeichert: %s", n)
-        except Exception:
-            log.exception("Einzelspuren konnten nicht verarbeitet werden")
+        for f in (self.mic.path, self.dis.path, Path(dis_src)):
+            Path(f).unlink(missing_ok=True)
         self.stopping = False
         return str(self.out_path)
 
@@ -323,7 +343,35 @@ def _safe(n):
     return re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "", str(n)).strip(" .")[:40] or "user"
 
 
-def finish_user_tracks(folder, rec_start_epoch, length_s, wait=6.0):
+def mix_user_tracks(folder, out_flac, length_s):
+    """Alle (angehakten) Einzelspuren zu einer Discord-Spur mischen – für MP3 und Wiedergabe."""
+    files = [sp["file"] for sp in _tracks_in(folder)]
+    if not files:
+        return None
+    cmd = [FFMPEG, "-y", "-hide_banner", "-loglevel", "error"]
+    for f in files:
+        cmd += ["-i", str(f)]
+    flt = (f"amix=inputs={len(files)}:normalize=0:duration=longest," if len(files) > 1 else "") + \
+        f"alimiter=limit=0.95,apad,atrim=0:{length_s:.3f}"
+    cmd += ["-filter_complex", flt, "-ac", "1", "-ar", "48000", "-c:a", "flac", str(out_flac)]
+    r = subprocess.run(cmd, capture_output=True, creationflags=_NOWIN)
+    if r.returncode != 0:
+        log.warning("Einzelspuren nicht gemischt: %s", r.stderr.decode("utf-8", "replace")[-300:])
+        return None
+    return out_flac
+
+
+def _tracks_in(folder):
+    import json
+    try:
+        meta = json.loads((Path(folder) / "spuren.json").read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    return [{**sp, "file": Path(folder) / sp["file"]} for sp in meta.get("spuren", [])
+            if (Path(folder) / sp["file"]).exists() and sp["file"].endswith(".flac")]
+
+
+def finish_user_tracks(folder, rec_start_epoch, length_s, wait=6.0, skip=()):
     """Wartet kurz auf das Plugin, wandelt die rohen Spuren in FLAC (auf die Aufnahme ausgerichtet)."""
     import json
     if not folder:
@@ -347,6 +395,10 @@ def finish_user_tracks(folder, rec_start_epoch, length_s, wait=6.0):
     out = []
     for sp in meta.get("spuren", []):
         pcm = folder / sp.get("file", "")
+        if str(sp.get("id")) in skip:                       # abgewählt: nichts von dieser Person behalten
+            pcm.unlink(missing_ok=True)
+            log.info("Spur von %s verworfen (abgewählt)", sp.get("anzeige") or sp.get("id"))
+            continue
         if not pcm.exists() or pcm.stat().st_size < sr:       # unter ~0,5 s Ton: weglassen
             continue
         flac = folder / f"{_safe(sp.get('anzeige') or sp.get('name'))}__{sp['id']}.flac"

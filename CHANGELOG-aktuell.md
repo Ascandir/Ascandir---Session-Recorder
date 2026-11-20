@@ -1,3 +1,4 @@
-- **🎧 Auswählen, wer aufgenommen wird:** Im Aufnahme-Tab erscheint bei verbundenem Vesktop-Plugin die Liste aller Personen im Sprachkanal mit Häkchen. Haken weg heißt: diese Person bekommt keine eigene Spur (z. B. Musik-Bots oder Zuschauer). Gilt sofort, auch während der Aufnahme, und wird pro Gruppe gemerkt
-- Bekannte Discord-Konten stehen gleich mit dem zugeordneten Spieler in der Liste
-- Dafür einmal unter ⚙️ Einstellungen → 🎧 Einzelspuren auf „Plugin einrichten / aktualisieren“ klicken (Vesktop vorher schließen)
+- **🔇 Stumm heißt jetzt wirklich: gar nicht aufgenommen.** Ist das Vesktop-Plugin beim Start der Aufnahme verbunden, nimmt der SessionRecorder den Discord-Gesamtton nicht mehr mit – Discord kommt dann ausschließlich über die Einzelspuren der angehakten Personen. Wer keinen Haken hat, ist nirgends zu hören, auch nicht in der MP3
+- Haken mitten in der Aufnahme weg = ab sofort stumm (z. B. für ein privates Gespräch), Haken wieder dran = wird wieder aufgenommen. Wer beim Beenden noch stumm ist, wird komplett verworfen
+- Die Discord-Spur in der Aufnahme und die MP3 werden aus den angehakten Einzelspuren gemischt
+- Aufnahme-Tab warnt, falls das Plugin während der Aufnahme die Verbindung verliert
