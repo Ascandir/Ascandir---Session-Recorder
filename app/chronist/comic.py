@@ -440,20 +440,48 @@ class _Res:
 
 
 def _run_sd(cmd, exe, logfile=None):
-    """sd-cli starten; Ausgabe ins Comic-Protokoll; per Abbrechen beendbar."""
+    """sd-cli starten; Ausgabe läuft live ins Comic-Protokoll; per Abbrechen beendbar."""
     if CURRENT["abbruch"]:
         raise RuntimeError("Abgebrochen.")
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
-                         errors="replace", creationflags=NOWIN, cwd=str(exe.parent), env=C.ORIG_ENV)
-    CURRENT["proc"] = p
-    out = p.communicate()[0]
-    CURRENT["proc"] = None
-    if logfile:
-        with open(logfile, "a", encoding="utf-8") as f:
-            f.write("\n===== " + " ".join(x if " " not in x else f'"{x[:60]}…"' for x in cmd[1:]) + "\n" + out)
+    logfile = Path(logfile or (C.TEMP / "bildgenerator.log"))
+    start = logfile.stat().st_size if logfile.exists() else 0
+    with open(logfile, "a", encoding="utf-8") as f:
+        f.write("\n===== " + time.strftime("%H:%M:%S ") +
+                " ".join(x if " " not in x else f'"{x[:60]}…"' for x in cmd[1:]) + "\n")
+        f.flush()
+        p = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, creationflags=NOWIN,
+                             cwd=str(exe.parent), env=C.ORIG_ENV)
+        CURRENT["proc"] = p
+        p.wait()
+        CURRENT["proc"] = None
+    with open(logfile, "rb") as f:
+        f.seek(start)
+        out = f.read().decode("utf-8", "replace")
     if CURRENT["abbruch"]:
         raise RuntimeError("Abgebrochen.")
     return _Res(p.returncode, out)
+
+
+def kill_stale():
+    """Übrig gebliebene Bildgenerator-Prozesse (z. B. nach Neustart/Update) beenden – die blockieren
+    sonst Prozessor und Grafikspeicher."""
+    n = 0
+    try:
+        import psutil
+        eng = str(ENGINE_DIR.resolve()).lower()
+        for p in psutil.process_iter(["name", "exe"]):
+            try:
+                if (p.info["name"] or "").lower() in ("sd-cli.exe", "sd-cli", "sd.exe") and \
+                        str(p.info["exe"] or "").lower().startswith(eng):
+                    p.kill()
+                    n += 1
+            except Exception:
+                pass
+    except Exception:
+        pass
+    if n:
+        log.info("%s alte(r) Bildgenerator-Prozess(e) beendet", n)
+    return n
 
 
 def kill():
@@ -486,7 +514,7 @@ def generate_panel(prompt, refs, out_png, seed, w=1024, h=768, plan=None, m=None
                "--diffusion-fa", "--vae-tiling"]
         if _supports(exe, "--backend"):
             cmd += ["--backend", "vulkan0"]            # Rechnen immer auf der Grafikkarte, nie auf dem Prozessor
-        if _supports(exe, "--max-vram"):
+        if spar and _supports(exe, "--max-vram"):
             cmd += ["--max-vram", "-1"]                # ~1 GB für Windows/Discord frei lassen
         if spar and _supports(exe, "--params-backend"):
             # Notlösung bei knappem Speicher: Gewichte im RAM, Textmodell nach dem Lesen wieder freigeben
@@ -771,6 +799,8 @@ def run(state, progress=lambda f, m: None, style=None, fmt=None):
     if not panels:
         raise RuntimeError("In der Comic-Vorlage wurden keine Panels gefunden.")
     CURRENT["abbruch"] = False
+    if kill_stale():
+        time.sleep(2)                     # Grafikspeicher freigeben lassen
     m = modell()
     if not installed(m):
         install(lambda f, msg: progress(0.02 + 0.28 * f, msg), m)

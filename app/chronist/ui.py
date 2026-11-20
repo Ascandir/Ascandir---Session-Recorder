@@ -1379,6 +1379,11 @@ def launch():
             return
     from . import storage
     storage.clean_temp()          # nur hier: wir sind der einzige laufende Server
+    try:
+        from . import comic as _co
+        _co.kill_stale()          # Reste eines abgebrochenen Comic-Laufs
+    except Exception:
+        pass
     from .recorder import start_bridge
     start_bridge()
     app, theme = build()

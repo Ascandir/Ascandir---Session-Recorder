@@ -1,3 +1,3 @@
-- **Comic rechnet wieder auf der Grafikkarte statt auf dem Prozessor:** Der Bildgenerator wird jetzt fest auf die Grafikkarte gesetzt und verteilt die Modelle selbst so, dass möglichst alles in den Grafikspeicher passt. Das Auslagern in den Arbeitsspeicher, das in 2.5.1 den Prozessor zum Glühen brachte, ist nur noch die Notlösung, wenn der Speicher nicht reicht
-- „Abbrechen“ beendet jetzt auch ein laufendes Comic-Malen sofort
-- Die komplette Ausgabe des Bildgenerators landet im Session-Ordner unter `comic\bildgenerator.log` und gekürzt im Debug-Log
+- **Hängengebliebene Bildgenerator-Prozesse werden beendet:** Wurde der SessionRecorder während des Comic-Malens geschlossen oder aktualisiert, lief der Bildgenerator unsichtbar weiter, belegte Prozessor und Grafikspeicher und bremste jeden neuen Comic aus. Solche Reste werden jetzt beim Start und vor jedem Comic automatisch beendet
+- Der Bildgenerator nimmt sich beim ersten Versuch den Grafikspeicher, den er braucht (die feste Reserve gibt es nur noch beim Sparversuch)
+- Die Ausgabe des Bildgenerators steht live in `comic\bildgenerator.log`, auch während er noch malt
