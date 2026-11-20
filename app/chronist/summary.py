@@ -173,9 +173,9 @@ Erstelle daraus eine Comic-Vorlage mit 8 bis 12 Panels, die die Sitzung als kurz
 Für jedes Panel in Markdown:
 ### Panel N
 - **Szene:** Ort, Licht, Stimmung
-- **Im Bild:** welche Charaktere und Gefährten, was sie tun (Aussehen beachten, soweit bekannt; Gefährten bei ihrem Besitzer zeigen, wenn sie in der Szene vorkommen)
-- **Sprechblasen:** kurz, höchstens zwei pro Panel, mit Sprecher
-- **Bild-Prompt (Englisch):** eine Beschreibung für einen Bildgenerator, beginnend mit „comic book panel, fantasy,“"""
+- **Im Bild:** welche Charaktere und Gefährten, was sie tun – nenne jede Figur IMMER mit ihrem CHARAKTERNAMEN (nie mit dem Spielernamen, nie nur „die Gruppe“); Gefährten bei ihrem Besitzer zeigen, wenn sie in der Szene vorkommen
+- **Sprechblasen:** kurz, höchstens zwei pro Panel, Sprecher mit Charakternamen
+- **Bild-Prompt (Englisch):** eine Beschreibung für einen Bildgenerator: Ort, Licht, Kamerawinkel und was jede Figur tut. Nenne jede Figur mit ihrem Charakternamen und beschreibe kurz ihr Aussehen (aus der Gruppenbeschreibung oben, auf Englisch). Keine Spielernamen."""
 
 
 def summarize(state, url, progress=lambda f, m: None):

@@ -1,6 +1,7 @@
-- **🎨 Comic-Seiten mit einem Klick:** Im Ergebnis-Tab „🎨 Comic“ malt das Tool aus der Comic-Vorlage jedes Panel lokal auf deiner Grafikkarte (FLUX.2-klein über stable-diffusion.cpp, Vulkan) und setzt die Bilder mit Sprechblasen zu A4-Seiten zusammen, als PNG und als Comic.pdf
-- Die Bilder deiner Charaktere dienen beim Malen als Vorlage (bis zu 4 Referenzbilder pro Panel), damit die Figuren wiedererkennbar bleiben
-- Neues Häkchen „🎨 Comic-Seiten direkt malen“: Analyse, Chronik und Comic laufen dann in einem Rutsch
-- In den Sprechblasen stehen die Charakternamen statt der Spielernamen
-- **🧙 Neuer Charakter-Editor:** Beliebig viele Charaktere anlegen (Hauptcharakter, Gefährte, Reittier, Vertrauter, NPC …) und Spielern zuweisen, jeweils mit Aussehen und **mehreren Bildern** (z. B. Turnaround). Bestehende Charaktere und Figuren werden automatisch übernommen
-- Einstellungen: Status und Installation des Bildgenerators (ca. 9 GB, im Programmordner), eigener Zeichenstil; Speicherübersicht zeigt den Bildgenerator
+- **Comic: Charaktere werden jetzt zuverlässig erkannt.** Bisher wurden Figuren nur über ihren Charakternamen gefunden. Stand in der Vorlage „Tim, Joscha und Nancy“ oder „die Gruppe“, gab es keine Referenzbilder. Jetzt zählen auch Spielernamen (→ deren Hauptcharakter), Sprecher und Wörter wie „Gruppe“ oder „adventurers“
+- **Turnaround-Bögen** (mehrere Ansichten nebeneinander) werden automatisch zerlegt; als Vorlage dient die erste Ansicht in voller Größe statt eines winzig verkleinerten Bogens
+- Referenzbilder werden fair verteilt (erst ein Bild pro Figur), und die Bildnummern im Prompt passen immer zu den mitgegebenen Bildern
+- Neuer Bild-Prompt im Format, das FLUX.2 für Referenzen erwartet: Figuren zuerst („X is the character shown in image 1 …“) mit Aussehen, dann Handlung und Szene
+- Die KI schreibt die Comic-Vorlage jetzt mit Charakternamen statt Spielernamen und beschreibt das Aussehen im Bild-Prompt
+- Die Comic-Vorlage ist editierbar; Änderungen werden beim Malen übernommen
+- Im Session-Ordner zeigt `comic\panels.txt` pro Panel, welche Figuren und Bilder erkannt wurden, samt Prompt

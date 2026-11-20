@@ -237,11 +237,17 @@ def _finish(state, with_comic, names, pr, with_draw=False):
 
 
 @_busy_guard
-def do_draw(state, progress=gr.Progress()):
+def do_draw(state, edited="", progress=gr.Progress()):
     if not state:
         raise gr.Error("Bitte zuerst eine Session auswerten oder öffnen.")
     from . import comic as CO
     pr = lambda f, m: progress(f, desc=m)
+    tplf = Path(state["ordner"]) / "comic_vorlage.md"
+    if edited and edited.strip() and "panel" in edited.lower():
+        old = tplf.read_text(encoding="utf-8") if tplf.exists() else ""
+        if edited.strip() != old.strip():
+            tplf.write_text(edited.strip() + "\n", encoding="utf-8")
+            log.info("Comic-Vorlage von Hand geändert und gespeichert")
     try:
         if not (Path(state["ordner"]) / "comic_vorlage.md").exists():
             with L.KI(pr) as url:
@@ -984,8 +990,12 @@ def build():
                     comic_pages = gr.Gallery(label="Comic-Seiten", columns=2, height=720, object_fit="contain",
                                              allow_preview=True)
                     comic_pdf = gr.File(label="Comic als PDF", visible=False, interactive=False)
-                    with gr.Accordion("Comic-Vorlage (Text)", open=False):
-                        comic_md = gr.Markdown("*Noch keine Comic-Vorlage.*", elem_classes=["result-card"])
+                    with gr.Accordion("Comic-Vorlage (Text) – hier kannst du Panels von Hand korrigieren", open=False):
+                        gr.Markdown("Tipp: Schreib in **Im Bild** die Charakternamen, dann nimmt der Comic deren "
+                                    "Bilder als Vorlage. Welche Figuren pro Panel erkannt wurden, steht nach dem "
+                                    "Malen im Session-Ordner in `comic\\panels.txt`. Änderungen werden beim Malen gespeichert.")
+                        comic_md = gr.Textbox(value="", placeholder="Noch keine Comic-Vorlage.", lines=18,
+                                              max_lines=40, show_label=False, interactive=True)
                 with gr.Tab("📝 Abschrift"):
                     transcript = gr.Textbox(lines=20, show_label=False, buttons=["copy"],
                                             placeholder="Die komplette Abschrift erscheint hier.")
@@ -1188,7 +1198,7 @@ def build():
         ev_fin.then(None, None, None, js=SCROLL_RESULT).then(existing_pages, state, [comic_pages, comic_pdf])
         ev_go.then(existing_pages, state, [comic_pages, comic_pdf])
         ev_comic = comic_btn.click(do_comic, state, comic_md, concurrency_limit=None)
-        ev_draw = draw_btn.click(do_draw, state, [draw_status, comic_pages, comic_pdf, comic_md],
+        ev_draw = draw_btn.click(do_draw, [state, comic_md], [draw_status, comic_pages, comic_pdf, comic_md],
                                  concurrency_limit=None, show_progress_on=[draw_status])
         ev_resplit = resplit_btn.click(do_resplit, [state, resplit_n],
                                        [status, state, voice_box] + voice_outs + [resplit_status],

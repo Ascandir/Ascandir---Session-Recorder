@@ -189,24 +189,34 @@ def _bubble(text):
 
 
 # ---------- Referenzbilder ----------
+GROUP_WORDS = r"(?<!\w)(gruppe|party|heroes|helden|abenteurer|adventurers|spielercharaktere|player characters|" \
+              r"alle|everyone|the group|companions|gefährten)(?!\w)"
+
+
 def _people(grp):
-    """Alle Charaktere mit Namen, Bildern und Aussehen (DM-Spieler ausgenommen)."""
+    """Alle Charaktere mit Namen, Bildern und Aussehen (DM-Hauptcharaktere ausgenommen).
+
+    Ein Charakter wird erkannt über seinen Namen, Namensteile (z. B. „Krätz“ aus „Krätz und Knabba“)
+    und – bei Hauptcharakteren – über den Namen des Spielers, dem er gehört.
+    """
     out = []
+    me = grp.get("ich_name", "Ich")
     for c in C.characters(grp):
         owner = c.get("besitzer", "")
-        if owner and C.is_dm(C.ICH_ID if owner == grp.get("ich_name") else owner, grp) \
-                and c.get("art") == "Hauptcharakter":
+        main = c.get("art") == "Hauptcharakter"
+        if owner and main and C.is_dm(C.ICH_ID if owner == me else owner, grp):
             continue
-        imgs = C.char_images(c, grp)
-        out.append({"namen": [c["name"]], "anzeige": c["name"], "bilder": imgs,
-                    "bild": imgs[0] if imgs else None, "aussehen": c.get("aussehen", "")})
+        imgs = [str(x) for x in C.char_images(c, grp) if Path(x).exists()]
+        namen = [c["name"]] + ([owner] if main and owner else [])
+        out.append({"namen": namen, "anzeige": c["name"], "bilder": imgs, "bild": imgs[0] if imgs else None,
+                    "aussehen": c.get("aussehen", ""), "haupt": main, "besitzer": owner})
     return out
 
 
 def _mentions(text, names):
     low = text.lower()
     for n in names:
-        for part in [n] + [w for w in re.split(r"\s+und\s+|,|/", n) if len(w.strip()) > 2]:
+        for part in [n] + [w for w in re.split(r"\s+und\s+|\s+and\s+|,|/|&", n) if len(w.strip()) > 2]:
             part = part.strip()
             if len(part) > 2 and re.search(r"(?<!\w)" + re.escape(part.lower()) + r"(?!\w)", low):
                 return True
@@ -214,10 +224,74 @@ def _mentions(text, names):
 
 
 def refs_for(panel, grp, max_refs=4):
-    text = " ".join([panel.get("im_bild", ""), panel.get("szene", ""), panel.get("prompt", ""),
-                     " ".join(w for w, _ in panel.get("blasen", []))])
-    hits = [p for p in _people(grp) if _mentions(text, [n for n in p["namen"] if n])]
+    """Welche Charaktere sind im Panel? Reihenfolge: Im-Bild-Zeile zuerst, dann Sprecher, dann Rest."""
+    people = _people(grp)
+    im_bild = panel.get("im_bild", "")
+    rest = " ".join([panel.get("szene", ""), panel.get("prompt", "")])
+    speakers = " ".join(w for w, _ in panel.get("blasen", []))
+    hits = []
+    for text in (im_bild, speakers, rest):
+        for pp in people:
+            if pp not in hits and _mentions(text, pp["namen"]):
+                hits.append(pp)
+    # „die Gruppe“, „adventurers“ … → alle Hauptcharaktere
+    if re.search(GROUP_WORDS, (im_bild + " " + rest).lower()):
+        for pp in people:
+            if pp["haupt"] and pp not in hits:
+                hits.append(pp)
+    # Gefährten nur, wenn ihr Besitzer auch im Bild ist oder sie genannt wurden (schon oben)
     return hits[:max_refs]
+
+
+def assign_refs(refs, max_images=4):
+    """Referenzbilder verteilen: erst ein Bild pro Charakter, dann zweite Ansichten, solange Platz ist.
+    Liefert [(charakter, [bildpfade])] – die Reihenfolge entspricht „image 1, image 2 …“ im Prompt."""
+    with_img = [r for r in refs if r.get("bilder")]
+    plan = [[r, []] for r in with_img]
+    n = 0
+    for round_ in range(2):
+        for entry in plan:
+            imgs = entry[0]["bilder"]
+            if round_ < len(imgs) and n < max_images:
+                entry[1].append(imgs[round_])
+                n += 1
+    return [(r, imgs) for r, imgs in plan if imgs]
+
+
+def _ref_file(path, cache_dir):
+    """Turnaround-Bögen (mehrere Ansichten nebeneinander) in Einzelansichten zerlegen und die
+    erste (meist Vorderansicht) nehmen – sonst wird jede Figur beim Verkleinern winzig."""
+    try:
+        from PIL import Image, ImageChops
+        im = Image.open(path).convert("RGB")
+        w, h = im.size
+        if w < h * 1.5:
+            return path
+        bg = Image.new("RGB", im.size, im.getpixel((2, 2)))
+        diff = ImageChops.difference(im, bg).convert("L").point(lambda v: 255 if v > 28 else 0)
+        cols = [sum(1 for y in range(0, h, 4) if diff.getpixel((x, y))) for x in range(w)]
+        thr = max(1, h // 4 // 100)
+        segs, start = [], None
+        for x, c in enumerate(cols + [0]):
+            if c > thr and start is None:
+                start = x
+            elif c <= thr and start is not None:
+                if x - start > w * 0.06:
+                    segs.append((start, x))
+                start = None
+        if len(segs) < 2:
+            return path
+        x0, x1 = segs[0]
+        pad = int((x1 - x0) * 0.08)
+        crop = im.crop((max(0, x0 - pad), 0, min(w, x1 + pad), h))
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        out = cache_dir / (Path(path).stem + "_ansicht1.png")
+        crop.save(out)
+        log.info("Turnaround erkannt (%s Ansichten): %s → erste Ansicht", len(segs), Path(path).name)
+        return str(out)
+    except Exception as e:
+        log.info("Referenzbild unverändert (%s): %s", Path(path).name, e)
+        return path
 
 
 def _short(text, n=320):
@@ -226,41 +300,49 @@ def _short(text, n=320):
     return t[:n].rsplit(" ", 1)[0] + "…" if len(t) > n else t
 
 
-def build_prompt(panel, refs, style):
+def build_prompt(panel, refs, style, plan=None):
+    """Prompt in der Form, die FLUX.2 für Mehrfach-Referenzen erwartet: Figuren zuerst, mit „image N“."""
+    plan = assign_refs(refs) if plan is None else plan
     base = panel.get("prompt") or f"{panel.get('szene', '')}. {panel.get('im_bild', '')}"
-    base = re.sub(r"(?i)^comic book panel,?\s*", "", base).strip()
-    parts = [f"{style}. Comic panel: {base}"]
-    idx = 1
-    for r in [r for r in refs if r["bild"]]:
-        k = min(2, len(r.get("bilder") or [r["bild"]]))
-        imgs = f"reference image {idx}" if k == 1 else f"reference images {idx} and {idx + 1}"
-        idx += k
-        d = f"{r['anzeige']} looks exactly like the character in {imgs}"
+    base = re.sub(r"(?i)^comic book panel,?\s*(fantasy,?)?\s*", "", base).strip()
+    cast, idx = [], 1
+    for r, imgs in plan:
+        nums = " and ".join(f"image {idx + k}" for k in range(len(imgs)))
+        idx += len(imgs)
+        d = (f"{r['anzeige']} is the character shown in {nums} – keep exactly the same face, hair, body, "
+             f"outfit, colors and species")
         if r["aussehen"]:
-            d += f" ({_short(r['aussehen'], 200)})"
-        parts.append(d)
+            d += f" ({_short(r['aussehen'], 220).rstrip('.')})"
+        cast.append(d)
     for r in refs:
-        if not r["bild"] and r["aussehen"]:
-            parts.append(f"{r['anzeige']}: {_short(r['aussehen'])}")
-    parts.append("no text, no letters, no speech bubbles")
-    return ". ".join(parts)
+        if not any(r is x for x, _ in plan) and r["aussehen"]:
+            cast.append(f"{r['anzeige']}: {_short(r['aussehen']).rstrip('.')}")
+    parts = [f"A single comic book panel in this style: {style}."]
+    if cast:
+        parts.append("Characters in this panel: " + "; ".join(cast) + ".")
+    if panel.get("im_bild"):
+        parts.append("What happens: " + _short(panel["im_bild"], 300).rstrip(".") + ".")
+    parts.append("Scene: " + base.rstrip(".") + ".")
+    parts.append("No text, no letters, no speech bubbles, no character sheet, no multiple views.")
+    return " ".join(parts)
 
 
 # ---------- Malen ----------
-def generate_panel(prompt, refs, out_png, seed, w=1024, h=768):
+def generate_panel(prompt, refs, out_png, seed, w=1024, h=768, plan=None):
     st = _state()
     exe = sd_cli()
     cmd = [str(exe), "--diffusion-model", str(DIR / st["diffusion"]), "--vae", str(VAE_FILE),
            "--llm", str(DIR / st["llm"]), "-p", prompt, "--cfg-scale", "1.0", "--steps", "4",
            "-W", str(w), "-H", str(h), "-s", str(seed), "-o", str(out_png),
            "--diffusion-fa", "--vae-tiling"]
+    plan = assign_refs(refs) if plan is None else plan
     n = 0
-    for r in refs:                       # pro Charakter bis zu 2 Bilder (z. B. Turnaround), insgesamt max. 4
-        for b in (r.get("bilder") or ([r["bild"]] if r.get("bild") else []))[:2]:
-            if n < 4:
-                cmd += ["-r", b]
-                n += 1
-    log.info("Panel malen: %s (%s Referenzbilder)", Path(out_png).name, sum(1 for r in refs if r.get("bild")))
+    for r, imgs in plan:
+        for b in imgs:
+            cmd += ["-r", _ref_file(b, Path(out_png).parent / "_referenzen")]
+            n += 1
+    log.info("Panel malen: %s – Figuren: %s – %s Referenzbild(er)", Path(out_png).name,
+             ", ".join(r["anzeige"] for r in refs) or "keine erkannt", n)
     t0 = time.time()
     p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
                        creationflags=NOWIN, cwd=str(exe.parent), env=C.ORIG_ENV)
@@ -408,13 +490,19 @@ def run(state, progress=lambda f, m: None, style=None):
     out.mkdir(exist_ok=True)
     for old in out.glob("*.png"):
         old.unlink()
-    images = []
+    images, protokoll = [], []
     seed = abs(hash(state.get("titel", ""))) % 100000
     for i, p in enumerate(panels):
         progress(0.3 + 0.65 * i / len(panels), f"Panel {i + 1} von {len(panels)} wird gemalt …")
         refs = refs_for(p, grp)
+        plan = assign_refs(refs)
+        prompt = build_prompt(p, refs, style, plan)
         png = out / f"panel_{p['nr']:02d}.png"
-        generate_panel(build_prompt(p, refs, style), refs, png, seed + i)
+        protokoll.append(f"Panel {p['nr']}: Figuren: {', '.join(r['anzeige'] for r in refs) or '– keine erkannt –'}\n"
+                         f"  Referenzbilder: {', '.join(Path(b).name for _, im in plan for b in im) or '–'}\n"
+                         f"  Prompt: {prompt}\n")
+        (out / "panels.txt").write_text("\n".join(protokoll), encoding="utf-8")
+        generate_panel(prompt, refs, png, seed + i, plan=plan)
         images.append(str(png))
     progress(0.97, "Seiten werden zusammengesetzt …")
     names = {}
