@@ -149,7 +149,7 @@ def do_cancel():
 
 
 @_busy_guard
-def do_analyse(rec, title, n_andere, vertauscht, with_comic, progress=gr.Progress()):
+def do_analyse(rec, title, n_andere, vertauscht, with_comic, with_draw=False, progress=gr.Progress()):
     """Ein Klick: Abschrift → Stimmen → (nur bei Unbekannten anhalten) → KI an → Chronik → KI aus."""
     if not rec:
         raise gr.Error("Bitte zuerst eine Aufnahme auswählen.")
@@ -167,7 +167,8 @@ def do_analyse(rec, title, n_andere, vertauscht, with_comic, progress=gr.Progres
                "wähl den Namen und klick auf **Weiter**. Ab dem nächsten Mal erkenne ich sie von selbst.")
         return [msg, state, gr.update(visible=True)] + _voice_updates(state) + [gr.update(), gr.update(), gr.update()]
     names = [v["vorschlag"] for v in state["stimmen"]]
-    state, text, summ, comic = _finish(state, with_comic, names, lambda f, m: progress(0.6 + f * 0.4, desc=m))
+    state, text, summ, comic = _finish(state, with_comic, names, lambda f, m: progress(0.6 + f * 0.4, desc=m),
+                                       with_draw=with_draw)
     msg = ("✅ Fertig! Alle Stimmen wiedererkannt – hier ist eure Chronik." if not summ.startswith("⚠️")
            else "⚠️ Abschrift fertig, aber die KI hatte ein Problem – Details unten.")
     return [msg, state, gr.update(visible=False)] + _voice_updates(state) + [text, summ, comic]
@@ -203,16 +204,17 @@ def do_resplit(state, n, progress=gr.Progress()):
 
 
 @_busy_guard
-def do_finish(state, with_comic, *names, progress=gr.Progress()):
+def do_finish(state, with_comic, with_draw, *names, progress=gr.Progress()):
     if not state:
         raise gr.Error("Bitte zuerst analysieren oder eine Session laden.")
-    state, text, summ, comic = _finish(state, with_comic, names, lambda f, m: progress(f, desc=m))
+    state, text, summ, comic = _finish(state, with_comic, names, lambda f, m: progress(f, desc=m),
+                                       with_draw=with_draw)
     ok = not summ.startswith("⚠️")
     msg = "✅ Fertig! Hier ist eure Chronik." if ok else "⚠️ Die KI hatte ein Problem – Details im Ergebnis-Bereich."
     return state, text, summ, comic, msg, gr.update(visible=not ok), msg
 
 
-def _finish(state, with_comic, names, pr):
+def _finish(state, with_comic, names, pr, with_draw=False):
     mapping = {}
     for v, n in zip(state["stimmen"], names):
         mapping[v["id"]] = n or C.UNBEKANNT
@@ -223,12 +225,44 @@ def _finish(state, with_comic, names, pr):
             summ = S.summarize(state, url, progress=pr)
             if with_comic:
                 comic = S.comic(state, url, progress=pr)
+        if with_draw and comic:
+            from . import comic as CO
+            CO.run(state, progress=pr)
     except Exception as e:
         log.exception("Zusammenfassung fehlgeschlagen")
         return (state, text, f"⚠️ Die Abschrift ist fertig, aber die Zusammenfassung ging schief:\n\n"
                 f"`{e}`\n\nÖffne die Session unter „Erweitert → Gespeicherte Session öffnen“ und klick "
                 "auf **Weiter** – die Abschrift muss nicht wiederholt werden.", "")
     return state, text, summ, comic
+
+
+@_busy_guard
+def do_draw(state, progress=gr.Progress()):
+    if not state:
+        raise gr.Error("Bitte zuerst eine Session auswerten oder öffnen.")
+    from . import comic as CO
+    pr = lambda f, m: progress(f, desc=m)
+    try:
+        if not (Path(state["ordner"]) / "comic_vorlage.md").exists():
+            with L.KI(pr) as url:
+                S.comic(state, url, progress=pr)
+        pages = CO.run(state, progress=pr)
+    except Exception as e:
+        log.exception("Comic malen fehlgeschlagen")
+        raise gr.Error(f"Comic konnte nicht gemalt werden: {e}")
+    pdf = Path(state["ordner"]) / "comic" / "Comic.pdf"
+    tpl = (Path(state["ordner"]) / "comic_vorlage.md").read_text(encoding="utf-8")
+    return (f"✅ Fertig: **{len(pages)} Seite(n)** – liegen auch im Session-Ordner unter `comic`.", pages,
+            gr.update(value=str(pdf) if pdf.exists() else None, visible=pdf.exists()), tpl)
+
+
+def existing_pages(state):
+    if not state:
+        return [], gr.update(visible=False)
+    d = Path(state["ordner"]) / "comic"
+    pages = sorted(str(p) for p in d.glob("seite_*.png")) if d.exists() else []
+    pdf = d / "Comic.pdf"
+    return pages, gr.update(value=str(pdf) if pdf.exists() else None, visible=pdf.exists())
 
 
 @_busy_guard
@@ -249,6 +283,108 @@ def dm_choices(g=None):
             + [(sp["name"], sp["name"]) for sp in g.get("spieler", []) if sp.get("name")])
 
 
+NEU = "➕ Neuer Charakter"
+
+
+def char_rows(g=None):
+    g = g or C.group()
+    return [[c["name"], c.get("art", ""), c.get("besitzer", ""), len(c.get("bilder") or [])]
+            for c in C.characters(g)] or [["", "", "", ""]]
+
+
+def char_choices(g=None):
+    return [NEU] + [c["name"] for c in C.characters(g or C.group())]
+
+
+def _find_char(g, name):
+    return next((c for c in g.get("charaktere", []) if c.get("name") == name), None)
+
+
+def char_updates(sel=NEU):
+    """Übersicht + Editor für einen Charakter (oder leer für einen neuen)."""
+    g = C.group()
+    c = _find_char(g, sel) if sel and sel != NEU else None
+    owners = owner_choices(g)
+    return [char_rows(g), gr.update(choices=char_choices(g), value=c["name"] if c else NEU),
+            c["name"] if c else "", gr.update(value=(c or {}).get("art", "Hauptcharakter")),
+            gr.update(choices=owners, value=(c or {}).get("besitzer") or (owners[0] if owners else None)),
+            (c or {}).get("aussehen", ""), C.char_images(c, g) if c else []]
+
+
+def save_char(sel, name, art, owner, look):
+    name = (name or "").strip()
+    if not name:
+        raise gr.Error("Bitte einen Namen für den Charakter eingeben.")
+    g = C.group()
+    g.setdefault("charaktere", [])
+    other = _find_char(g, name)
+    c = _find_char(g, sel) if sel and sel != NEU else None
+    if other and other is not c:
+        raise gr.Error(f"Einen Charakter „{name}“ gibt es schon.")
+    if c is None:
+        c = {"name": name, "bilder": []}
+        g["charaktere"].append(c)
+    c.update({"name": name, "art": (art or "Hauptcharakter").strip(), "besitzer": owner or "",
+              "aussehen": (look or "").strip()})
+    C.save_group(g)
+    log.info("Charakter gespeichert: %s (%s, %s)", name, c["art"], owner)
+    return [f"💾 **{name}** gespeichert."] + char_updates(name)
+
+
+def add_char_images(sel, files):
+    if not files:
+        return [gr.update()] + char_updates(sel) + [None]
+    if not sel or sel == NEU:
+        raise gr.Error("Bitte den Charakter zuerst speichern, dann Bilder hinzufügen.")
+    from PIL import Image
+    g = C.group()
+    c = _find_char(g, sel)
+    safe = "".join(ch if ch.isalnum() else "_" for ch in sel) or "charakter"
+    n = 0
+    for f in files:
+        path = f if isinstance(f, str) else getattr(f, "name", None)
+        if not path:
+            continue
+        k = len(c.setdefault("bilder", [])) + 1
+        while (C.images_dir() / f"char_{safe}_{k}.png").exists():
+            k += 1
+        img = Image.open(path)
+        img.thumbnail((1536, 1536))
+        img.convert("RGBA" if img.mode in ("RGBA", "LA", "P") else "RGB").save(C.images_dir() / f"char_{safe}_{k}.png")
+        c["bilder"].append(f"char_{safe}_{k}.png")
+        n += 1
+    C.save_group(g)
+    return [f"🖼️ {n} Bild(er) zu **{sel}** hinzugefügt."] + char_updates(sel) + [None]
+
+
+def pick_char_image(evt: gr.SelectData):
+    return evt.index
+
+
+def del_char_image(sel, idx):
+    g = C.group()
+    c = _find_char(g, sel) if sel and sel != NEU else None
+    if not c or idx is None or idx >= len(c.get("bilder") or []):
+        raise gr.Error("Bitte zuerst ein Bild in der Galerie anklicken.")
+    f = c["bilder"].pop(idx)
+    (C.images_dir() / f).unlink(missing_ok=True)
+    C.save_group(g)
+    return [f"Bild entfernt."] + char_updates(sel) + [None]
+
+
+def del_char(sel, confirmed):
+    if not confirmed or not sel or sel == NEU:
+        return ["Abgebrochen."] + char_updates(sel)
+    g = C.group()
+    c = _find_char(g, sel)
+    if c:
+        for f in c.get("bilder") or []:
+            (C.images_dir() / f).unlink(missing_ok=True)
+        g["charaktere"].remove(c)
+        C.save_group(g)
+    return [f"🗑️ **{sel}** gelöscht."] + char_updates(NEU)
+
+
 FIG = "fig:"          # Schlüssel-Präfix für Gefährten & weitere Figuren
 
 
@@ -264,37 +400,31 @@ def fig_label(f):
 
 def save_group(ich_name, ich_rolle, dm, table, kontext, fig_table=None):
     old = C.group()
-    looks = {sp.get("name"): sp.get("aussehen", "") for sp in old.get("spieler", [])}
     rows = []
     for r in (table or []):
-        r = list(r) + ["", ""]
+        r = list(r) + [""]
         if str(r[0] or "").strip():
-            n = str(r[0]).strip()
-            rows.append({"name": n, "charakter": str(r[1] or "").strip(), "aussehen": looks.get(n, "")})
+            rows.append({"name": str(r[0]).strip()})
     names = {r["name"] for r in rows}
     if dm != C.ICH_ID and dm not in names:
         dm = C.ICH_ID
     # Gefährten & weitere Figuren (Aussehen bleibt beim Namen erhalten)
-    old_figs = {f.get("name"): f for f in old.get("figuren", [])}
-    owners = [ich_name.strip() or "Ich"] + [r["name"] for r in rows]
-    figs, warn = [], []
-    for r in (fig_table if fig_table is not None else
-              [[f.get("besitzer"), f.get("name"), f.get("art")] for f in old.get("figuren", [])]):
-        r = list(r) + ["", "", ""]
-        name = str(r[1] or "").strip()
-        if not name:
-            continue
-        owner = str(r[0] or "").strip()
-        if owner and owner not in owners:
-            warn.append(f"„{owner}“ (bei {name}) ist kein Mitglied der Gruppe")
-        figs.append({"besitzer": owner, "name": name, "art": str(r[2] or "").strip(),
-                     "aussehen": old_figs.get(name, {}).get("aussehen", "")})
-    g = {"ich_name": ich_name.strip() or "Ich", "ich_rolle": ich_rolle.strip(), "dm": dm,
-         "spieler": rows, "kontext": kontext, "bilder": old.get("bilder", {}),
-         "ich_aussehen": old.get("ich_aussehen", ""), "figuren": figs}
+    warn = []
+    # Charaktere: Besitzer mitziehen, falls "Dein Name" geändert wurde
+    chars = old.get("charaktere", [])
+    new_me = ich_name.strip() or "Ich"
+    for c in chars:
+        if c.get("besitzer") == old.get("ich_name") and new_me != old.get("ich_name"):
+            c["besitzer"] = new_me
+    g = {"ich_name": new_me, "dm": dm, "spieler": rows, "kontext": kontext,
+         "bilder": old.get("bilder", {}), "charaktere": chars}
     C.save_group(g)
     wer = "Du bist der DM." if dm == C.ICH_ID else f"{dm} ist der DM."
-    msg = f"Gespeichert: {len(rows)} Spieler, {len(figs)} weitere Figuren. {wer}"
+    msg = f"Gespeichert: {len(rows)} Mitspieler. {wer}"
+    owners = owner_choices(g)
+    lost = [c["name"] for c in chars if c.get("besitzer") and c["besitzer"] not in owners]
+    if lost:
+        warn.append("Charaktere ohne gültigen Besitzer: " + ", ".join(lost))
     if warn:
         msg += "  \n⚠️ " + "; ".join(warn)
     return ([msg, gr.update(value=len(rows)), gr.update(choices=dm_choices(g), value=dm)] + image_updates())
@@ -354,14 +484,13 @@ def group_refresh(*radio_vals):
     """Alles, was von der aktiven Gruppe abhängt, neu befüllen."""
     a = C.active_group()
     g = C.group()
-    rows = [[x["name"], x.get("charakter", "")] for x in g.get("spieler", [])] or [["", ""]] * 5
+    rows = [[x["name"]] for x in g.get("spieler", [])] or [[""]] * 5
     out = [gr.update(choices=group_choices(), value=a) for _ in range(3)] + [
            gr.update(choices=recordings(), value=(recordings()[0][1] if recordings() else None)),
            gr.update(choices=P.list_sessions(), value=None),
            gr.update(value=n_spieler() or 4), gr.update(value=n_spieler() or 4),
            g["ich_name"], g["ich_rolle"], gr.update(choices=dm_choices(g), value=g.get("dm", C.ICH_ID)),
-           rows, [[f.get("besitzer", ""), f.get("name", ""), f.get("art", "")] for f in g.get("figuren", [])]
-           or [["", "", ""]] * 3, g.get("kontext", ""), gr.update(choices=list(C.voices()), value=None),
+           rows, None, g.get("kontext", ""), gr.update(choices=list(C.voices()), value=None),
            f"Gruppe: **{a}** · Aufnahmen landen in `{C.recordings_dir()}`"]
     names = name_choices()
     out += [gr.update(choices=names, value=None) for _ in range(MAX_STIMMEN)]
@@ -412,7 +541,11 @@ def save_look(i, text):
 
 
 def image_updates():
-    """Updates für alle Charakter-Karten: erst die Bilder, dann die Aussehen-Felder."""
+    return char_updates(NEU)
+
+
+def _old_image_updates():
+    """(alt) Updates für die früheren Charakter-Karten."""
     ps = persons()
     g = C.group()
     imgs, looks = [], []
@@ -494,6 +627,15 @@ def _ki_status(mode, st):
                 "Die eingebaute KI wird beim ersten Bedarf automatisch geladen (ca. 9 GB) – "
                 "oder jetzt mit dem Knopf unten.")
     return f"Es wird die KI unter `{st['llm_url']}` genutzt. Sie muss selbst gestartet sein."
+
+
+def do_install_draw(progress=gr.Progress()):
+    from . import comic as CO
+    try:
+        CO.install(lambda f, m: progress(f, desc=m))
+    except Exception as e:
+        raise gr.Error(f"Installation fehlgeschlagen: {e}")
+    return "✅ Bildgenerator installiert."
 
 
 def do_storage_refresh():
@@ -782,7 +924,10 @@ def build():
                     n_andere = gr.Number(label="Leute außer dir im Discord",
                                          value=n_spieler() or 4, precision=0, minimum=1,
                                          info="Standard: alle aus deiner Gruppe")
-                with_comic = gr.Checkbox(label="Comic-Vorlage mit erstellen", value=True)
+                with gr.Row():
+                    with_comic = gr.Checkbox(label="Comic-Vorlage mit erstellen", value=True)
+                    with_draw = gr.Checkbox(label="🎨 Comic-Seiten direkt malen", value=False,
+                                            info="Nach der Chronik auf der Grafikkarte – dauert pro Panel etwas")
             with gr.Accordion("Erweitert", open=False):
                 vertauscht = gr.Checkbox(label="Spuren vertauscht (Discord ist Spur 1, Mikro Spur 2)")
                 with gr.Row():
@@ -828,9 +973,19 @@ def build():
                 with gr.Tab("📖 Chronik"):
                     summary = gr.Markdown("*Noch keine Chronik – sie erscheint hier nach der Auswertung.*",
                                           elem_classes=["result-card"])
-                with gr.Tab("🖼️ Comic-Vorlage"):
-                    comic_md = gr.Markdown("*Noch keine Comic-Vorlage.*", elem_classes=["result-card"])
-                    comic_btn = gr.Button("🖼️ Comic-Vorlage (neu) erstellen")
+                with gr.Tab("🎨 Comic"):
+                    with gr.Row():
+                        draw_btn = gr.Button("🎨 Comic-Seiten erstellen", variant="primary", scale=3)
+                        comic_btn = gr.Button("📝 Comic-Vorlage (neu) schreiben", scale=2)
+                    draw_status = gr.Markdown("Malt aus der Comic-Vorlage jedes Panel auf deiner Grafikkarte und setzt "
+                                              "es mit Sprechblasen zu Seiten zusammen. Charakterbilder dienen als Vorlage. "
+                                              "Beim ersten Mal wird der Bildgenerator geladen (ca. 9 GB).",
+                                              elem_classes=["status-card"])
+                    comic_pages = gr.Gallery(label="Comic-Seiten", columns=2, height=720, object_fit="contain",
+                                             allow_preview=True)
+                    comic_pdf = gr.File(label="Comic als PDF", visible=False, interactive=False)
+                    with gr.Accordion("Comic-Vorlage (Text)", open=False):
+                        comic_md = gr.Markdown("*Noch keine Comic-Vorlage.*", elem_classes=["result-card"])
                 with gr.Tab("📝 Abschrift"):
                     transcript = gr.Textbox(lines=20, show_label=False, buttons=["copy"],
                                             placeholder="Die komplette Abschrift erscheint hier.")
@@ -854,45 +1009,46 @@ def build():
                         "eigene gelernte Stimmen und eigene Ordner.")
             with gr.Row():
                 ich_name = gr.Textbox(label="Dein Name", value=grp["ich_name"])
-                ich_rolle = gr.Textbox(label="Dein Charakter", value=grp["ich_rolle"],
-                                       info="Leer lassen, wenn du der DM bist")
+                ich_rolle = gr.Textbox(value=grp.get("ich_rolle", ""), visible=False)
                 dm_dd = gr.Dropdown(choices=dm_choices(grp), value=grp.get("dm", C.ICH_ID),
                                     label="Wer ist der Spielleiter (DM)?",
                                     info="Seine Zeilen werden als Erzählung & NPCs behandelt")
             table = gr.Dataframe(
-                headers=["Spieler", "Charakter (beim DM leer lassen)"],
-                datatype=["str", "str"], type="array", interactive=True,
-                value=[[s["name"], s.get("charakter", "")] for s in grp["spieler"]] or [["", ""]] * 5,
-                column_count=(2, "fixed"), row_count=(5, "dynamic"))
-            gr.Markdown("**🐾 Gefährten & weitere Figuren** – tierische Gefährten, Reittiere, Vertraute, "
-                        "Begleiter … Unter „Gehört zu“ den Spielernamen (oder deinen) eintragen.")
-            fig_table = gr.Dataframe(
-                headers=["Gehört zu", "Name der Figur", "Art (z. B. Wolf-Gefährte, Reittier, Vertrauter)"],
-                datatype=["str", "str", "str"], type="array", interactive=True,
-                value=[[f.get("besitzer", ""), f.get("name", ""), f.get("art", "")] for f in grp.get("figuren", [])]
-                      or [["", "", ""]] * 3,
-                column_count=(3, "fixed"), row_count=(3, "dynamic"))
+                headers=["Mitspieler (ohne dich)"], datatype=["str"], type="array", interactive=True,
+                value=[[s["name"]] for s in grp["spieler"]] or [[""]] * 5,
+                column_count=(1, "fixed"), row_count=(5, "dynamic"))
+            fig_table = gr.State(None)
             kontext = gr.Textbox(label="Kampagne & wichtige Namen (NPCs, Orte, Götter …)",
                                  lines=4, value=grp["kontext"])
             save_g = gr.Button("Speichern", variant="primary")
             g_status = gr.Markdown()
-            gr.Markdown("### 🖼️ Charaktere & Gefährten: Bild & Aussehen\nFür den Comic. Bild hineinziehen, anklicken oder mit "
-                        "Strg+V einfügen; das Aussehen einfach ins Feld schreiben oder hineinkopieren. Beides wird "
-                        "sofort gespeichert. Neue Spieler erscheinen hier nach dem Speichern oben.")
-            img_slots, look_boxes = [], []
-            ps = persons()
-            for i in range(MAX_BILDER):
-                vis = i < len(ps)
-                with gr.Row(equal_height=True):
-                    img_slots.append(gr.Image(
-                        type="filepath", sources=["upload", "clipboard"], height=240, scale=1, min_width=200,
-                        label=ps[i][1] if vis else "", visible=vis,
-                        value=C.image_path(ps[i][0]) if vis else None))
-                    look_boxes.append(gr.Textbox(
-                        label=f"Aussehen – {ps[i][1]}" if vis else "Aussehen", lines=9, max_lines=30, scale=3,
-                        visible=vis, value=appearance(ps[i][0]) if vis else "",
-                        placeholder="z. B. Größe, Volk, Haare, Augen, Kleidung, Ausrüstung, Besonderheiten …"))
+            gr.Markdown("### 🧙 Charaktere\nLeg beliebig viele Charaktere an – Hauptcharaktere, Gefährten, Reittiere, "
+                        "Vertraute … – und weise sie einem Spieler zu. Jeder Charakter kann ein Aussehen und **mehrere "
+                        "Bilder** haben (z. B. Turnaround: vorne, seitlich, hinten). Die Bilder nutzt der Comic als Vorlage.")
+            char_table = gr.Dataframe(headers=["Charakter", "Art", "Gehört zu", "Bilder"], type="array",
+                                      interactive=False, value=char_rows(), column_count=(4, "fixed"))
+            with gr.Row():
+                char_sel = gr.Dropdown(char_choices(), value=NEU, label="Charakter bearbeiten", scale=3)
+            with gr.Group():
+                with gr.Row():
+                    c_name = gr.Textbox(label="Name", placeholder="z. B. Gnabber", scale=2)
+                    c_art = gr.Dropdown(C.ARTEN, value="Hauptcharakter", label="Art", allow_custom_value=True, scale=1)
+                    c_owner = gr.Dropdown(owner_choices(), label="Gehört zu", scale=1)
+                c_look = gr.Textbox(label="Aussehen", lines=8, max_lines=30,
+                                    placeholder="z. B. Volk, Größe, Haare, Augen, Kleidung, Ausrüstung, Besonderheiten …")
+                c_gallery = gr.Gallery(label="Bilder (z. B. Turnaround)", columns=5, height=260,
+                                       allow_preview=True, object_fit="contain")
+                with gr.Row():
+                    c_upload = gr.File(label="Bilder hinzufügen", file_count="multiple", file_types=["image"],
+                                       scale=3)
+                    c_img_del = gr.Button("🗑️ Ausgewähltes Bild entfernen", scale=1)
+                c_img_idx = gr.State(None)
+                with gr.Row():
+                    c_save = gr.Button("💾 Charakter speichern", variant="primary")
+                    c_del = gr.Button("🗑️ Charakter löschen", variant="stop")
             img_status = gr.Markdown()
+            img_slots, look_boxes = [], []
+            CHAR_OUTS = [char_table, char_sel, c_name, c_art, c_owner, c_look, c_gallery]
 
           with gr.Tab("⚙️ Einstellungen", id="einstellungen"):
             with gr.Row():
@@ -928,6 +1084,15 @@ def build():
                 url = gr.Textbox(label="Adresse der KI", value=st["llm_url"],
                                  info="Strata: http://127.0.0.1:8080/v1")
                 model = gr.Textbox(label="Modellname (leer = automatisch)", value=st["llm_model"])
+            gr.Markdown("### 🎨 Bildgenerator (für die Comic-Seiten)")
+            from . import comic as _comic
+            draw_md = gr.Markdown("✅ Installiert (FLUX.2-klein, läuft auf der Grafikkarte)." if _comic.installed() else
+                                  "Noch nicht installiert – wird beim ersten Comic automatisch geladen (ca. 9 GB).")
+            comic_style = gr.Textbox(label="Zeichenstil", value=st.get("comic_stil") or _comic.STYLE_DEFAULT,
+                                     info="Englisch funktioniert am besten, z. B. „black and white manga, screentone shading“")
+            with gr.Row():
+                style_save = gr.Button("Stil speichern")
+                draw_inst = gr.Button("Bildgenerator jetzt installieren")
             gr.Markdown("### 💾 Speicher")
             gr.Markdown("Alle Modelle, Downloads und Zwischendateien liegen im Programmordner – nichts im "
                         "Benutzerordner oder im Windows-Temp.")
@@ -973,7 +1138,7 @@ def build():
         quit_btn.click(do_quit, None, quit_md)
 
         G_OUTS = [rec_group, ev_group, grp_sel, rec, alte, n_andere, resplit_n, ich_name, ich_rolle, dm_dd,
-                  table, fig_table, kontext, vlist, rec_group_md] + [r[3] for r in rows] + img_slots + look_boxes
+                  table, fig_table, kontext, vlist, rec_group_md] + [r[3] for r in rows] + CHAR_OUTS
         for sel in (rec_group, ev_group, grp_sel):
             sel.input(do_switch_group, sel, None).then(group_refresh, None, G_OUTS)
         new_btn.click(do_create_group, new_name, [grp_status, new_name]).then(group_refresh, None, G_OUTS)
@@ -996,7 +1161,7 @@ def build():
 
         def on_load():
             g = C.group()
-            rows = [[x["name"], x.get("charakter", "")] for x in g.get("spieler", [])] or [["", ""]] * 5
+            rows = [[x["name"]] for x in g.get("spieler", [])] or [[""]] * 5
             return ([g["ich_name"], g["ich_rolle"],
                      gr.update(choices=dm_choices(g), value=g.get("dm", C.ICH_ID)),
                      rows, g.get("kontext", ""),
@@ -1006,31 +1171,41 @@ def build():
                      gr.update(value=getattr(REC, "session_name", "") if REC.running else "",
                                interactive=not REC.running)] + image_updates())
         app.load(on_load, None, [ich_name, ich_rolle, dm_dd, table, kontext, rec, rec_md,
-                                 rec_start, rec_stop, timer, sess_name] + img_slots + look_boxes).then(
+                                 rec_start, rec_stop, timer, sess_name] + CHAR_OUTS).then(
             group_refresh, None, G_OUTS).then(lambda: gr.update(interactive=not REC.running), None, rec_group)
         voice_outs = [x for r in rows for x in r]
         refresh.click(lambda: gr.update(choices=recordings()), None, rec)
-        ev_go = go.click(do_analyse, [rec, title, n_andere, vertauscht, with_comic],
+        ev_go = go.click(do_analyse, [rec, title, n_andere, vertauscht, with_comic, with_draw],
                          [status, state, voice_box] + voice_outs + [transcript, summary, comic_md],
                          concurrency_limit=None, show_progress_on=[status])
         ev_go.then(None, None, None, js=SCROLL_IF_DONE)
         load_btn.click(do_load, alte, [status, state, voice_box] + voice_outs
-                       + [summary, transcript, comic_md])
+                       + [summary, transcript, comic_md]).then(existing_pages, state, [comic_pages, comic_pdf])
         alte.focus(lambda: gr.update(choices=P.list_sessions()), None, alte)
-        ev_fin = finish.click(do_finish, [state, with_comic] + [r[3] for r in rows],
+        ev_fin = finish.click(do_finish, [state, with_comic, with_draw] + [r[3] for r in rows],
                               [state, transcript, summary, comic_md, status, voice_box, finish_status],
                               concurrency_limit=None, show_progress_on=[finish_status])
-        ev_fin.then(None, None, None, js=SCROLL_RESULT)
+        ev_fin.then(None, None, None, js=SCROLL_RESULT).then(existing_pages, state, [comic_pages, comic_pdf])
+        ev_go.then(existing_pages, state, [comic_pages, comic_pdf])
         ev_comic = comic_btn.click(do_comic, state, comic_md, concurrency_limit=None)
+        ev_draw = draw_btn.click(do_draw, state, [draw_status, comic_pages, comic_pdf, comic_md],
+                                 concurrency_limit=None, show_progress_on=[draw_status])
         ev_resplit = resplit_btn.click(do_resplit, [state, resplit_n],
                                        [status, state, voice_box] + voice_outs + [resplit_status],
                                        concurrency_limit=None, show_progress_on=[resplit_status])
-        cancel_btn.click(do_cancel, None, status, cancels=[ev_go, ev_fin, ev_comic, ev_resplit])
+        cancel_btn.click(do_cancel, None, status, cancels=[ev_go, ev_fin, ev_comic, ev_resplit, ev_draw])
         folder_btn.click(open_folder, state, folder_md)
         save_g.click(save_group, [ich_name, ich_rolle, dm_dd, table, kontext, fig_table],
-                     [g_status, n_andere, dm_dd] + img_slots + look_boxes).then(
+                     [g_status, n_andere, dm_dd] + CHAR_OUTS).then(
             lambda *vals: [gr.update(choices=name_choices(), value=v if v in name_choices() else None)
                            for v in vals], [r[3] for r in rows], [r[3] for r in rows])
+        char_sel.input(char_updates, char_sel, CHAR_OUTS)
+        c_save.click(save_char, [char_sel, c_name, c_art, c_owner, c_look], [img_status] + CHAR_OUTS)
+        c_upload.upload(add_char_images, [char_sel, c_upload], [img_status] + CHAR_OUTS + [c_upload])
+        c_gallery.select(pick_char_image, None, c_img_idx)
+        c_img_del.click(del_char_image, [char_sel, c_img_idx], [img_status] + CHAR_OUTS + [c_img_idx])
+        c_del.click(del_char, [char_sel, c_del], [img_status] + CHAR_OUTS,
+                    js="(s, x) => [s, confirm('Diesen Charakter wirklich löschen? Seine Bilder werden ebenfalls entfernt.')]")
         for i, slot in enumerate(img_slots):
             slot.upload(lambda p, i=i: save_image(i, p), slot, img_status)
             slot.clear(lambda i=i: save_image(i, None), None, img_status)
@@ -1046,6 +1221,9 @@ def build():
         strata_preset_dd.input(save_preset, strata_preset_dd, ki_md)
         dbg_btn.click(do_debug, None, [dbg_md, dbg_text, dbg_file])
         sto_refresh.click(do_storage_refresh, None, sto_md)
+        style_save.click(lambda t: (C.save("einstellungen", {**C.settings(), "comic_stil": t.strip()}),
+                                    "Stil gespeichert.")[1], comic_style, draw_md)
+        draw_inst.click(do_install_draw, None, draw_md)
         sto_temp.click(do_clear_temp, None, [sto_md, sto_status])
         sto_whisper.click(do_remove_whisper, None, [sto_md, sto_status])
         sto_builtin.click(do_remove_builtin, None, [sto_md, sto_status])

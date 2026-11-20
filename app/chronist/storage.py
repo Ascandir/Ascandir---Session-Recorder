@@ -131,6 +131,7 @@ def overview():
     rows += [
         ("Stimmerkennung", _size(models.VOICE_DIR)),
         ("Eingebaute KI (Engine + Modell)", _size(L.BUILTIN_DIR)),
+        ("Bildgenerator (Comic)", _size(C.MODELS / "bilder-ki")),
         ("Download-Zwischenspeicher", _size(C.HF_CACHE) + _size(C.DATA / "cache")),
         ("Python & Programmteile", _size(root / "venv") + _size(root / "python") + _size(root / "tools")),
         ("Aufnahmen (alle Gruppen)", _size(Path(C.settings().get("aufnahme_ordner") or C.RECORDINGS))),

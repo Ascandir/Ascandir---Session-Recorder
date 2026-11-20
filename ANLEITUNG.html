@@ -22,7 +22,7 @@
 </head>
 <body>
 <h1>🎲 Ascandir · SessionRecorder</h1>
-<p class="sub">Nimmt eure Discord-Session auf, erkennt wer spricht, schreibt alles ab und macht daraus eine Chronik – und auf Wunsch eine Comic-Vorlage. Alles bleibt auf deinem PC.</p>
+<p class="sub">Nimmt eure Discord-Session auf, erkennt wer spricht, schreibt alles ab und macht daraus eine Chronik – und auf Wunsch fertige Comic-Seiten. Alles bleibt auf deinem PC.</p>
 
 <h2>Installieren (einmalig)</h2>
 <ol>
@@ -37,7 +37,8 @@
 <p>Du kannst mehrere Gruppen anlegen (Tab <b>👥 Gruppe</b> → „Neue Gruppe“), umbenennen und löschen. Jede Gruppe hat eigene Mitspieler, einen eigenen DM, eigene gelernte Stimmen, eigene Charakterbilder – und eigene Ordner: <code>Aufnahmen\&lt;Gruppe&gt;</code> und <code>Sessions\&lt;Gruppe&gt;</code>. Welche Gruppe gerade aktiv ist, wählst du in jedem Tab oben. Beim Löschen einer Gruppe bleiben ihre Aufnahmen und Sessions erhalten.</p>
 
 <h2>Beim ersten Start: Gruppe eintragen</h2>
-<p>Tab <b>👥 Gruppe</b>: dein Name, deine Rolle (z.&nbsp;B. DM) und alle Mitspieler mit Charakter. Unter „Kampagne &amp; wichtige Namen“ NPCs und Orte notieren – das hilft der Spracherkennung bei der Schreibweise. Wähl aus, <b>wer der Spielleiter (DM)</b> ist. Unter <b>🐾 Gefährten &amp; weitere Figuren</b> kannst du jedem Spieler (und dir) weitere Figuren zuordnen – tierische Gefährten, Reittiere, Vertraute, Begleiter. Für den Comic gibt es unten für jeden Charakter und jede Figur eine Karte mit <b>Bild</b> und <b>Aussehen</b>. <b>Speichern</b>.</p>
+<p>Tab <b>👥 Gruppe</b>: dein Name und deine Mitspieler. Unter „Kampagne &amp; wichtige Namen“ NPCs und Orte notieren – das hilft der Spracherkennung bei der Schreibweise. Wähl aus, <b>wer der Spielleiter (DM)</b> ist. <b>Speichern</b>.</p>
+<p>Darunter unter <b>🧙 Charaktere</b> legst du beliebig viele Charaktere an und weist sie einem Spieler zu: Hauptcharaktere, Gefährten, Reittiere, Vertraute, NPCs … Wähl oben „➕ Neuer Charakter“ oder einen bestehenden, trag Name, Art, „Gehört zu“ und das <b>Aussehen</b> ein und klick auf <b>Charakter speichern</b>. Danach kannst du <b>mehrere Bilder</b> hochladen (z.&nbsp;B. Turnaround: vorne, seitlich, hinten). Ein Bild entfernst du, indem du es in der Galerie anklickst und „Ausgewähltes Bild entfernen“ drückst. Deine alten Charaktere und Figuren wurden automatisch übernommen.</p>
 
 <h2>Am Spieleabend</h2>
 <ol>
@@ -55,7 +56,8 @@
     <li>Tab <b>📜 Session auswerten</b> – die neue Aufnahme und ihr Name sind schon eingetragen. Prüfen wie viele Leute außer dir dabei waren.</li>
   <li><b>▶ Analysieren</b> – das ist alles. Das Tool schreibt ab, erkennt die Stimmen, startet die KI, schreibt Chronik und Comic-Vorlage und beendet die KI wieder. Bei 3 Stunden Aufnahme grob 30–75 Minuten.</li>
   <li>Nur wenn eine Stimme <b>neu</b> ist, hält das Tool kurz an: reinhören, Spieler wählen, <b>Weiter ▶</b>. Ab der zweiten Session erkennt es die Stimmen selbst und läuft durch.</li>
-    <li>Die Comic-Vorlage enthält Panels mit Szenen, Sprechblasen und englischen Bild-Prompts für einen Bildgenerator. Nachträglich geht das auch über <b>🖼️ Comic-Vorlage erstellen</b>.</li>
+    <li>Die Comic-Vorlage enthält Panels mit Szenen, Sprechblasen und Bild-Prompts. Setzt du zusätzlich das Häkchen <b>🎨 Comic-Seiten direkt malen</b>, malt das Tool die Seiten gleich mit.</li>
+    <li>Oder später im Ergebnis-Tab <b>🎨 Comic</b> → <b>🎨 Comic-Seiten erstellen</b>: Jedes Panel wird lokal auf deiner Grafikkarte gemalt (FLUX.2-klein), die Bilder deiner Charaktere dienen als Vorlage, Sprechblasen kommen automatisch drauf. Ergebnis: Seiten als PNG und eine <code>Comic.pdf</code> im Session-Ordner unter <code>comic</code>. Beim ersten Mal lädt das Tool den Bildgenerator (ca. 9&nbsp;GB, landet im Programmordner). Den Zeichenstil stellst du unter ⚙️ Einstellungen ein.</li>
 </ol>
 <p>Der SessionRecorder läuft in einem eigenen Fenster. Fenster schließen (oder <b>⏻ Beenden</b>) beendet alles – auch eine laufende KI. Läuft noch eine Aufnahme, fragt das Tool vorher und speichert sie.</p>
 
@@ -82,6 +84,7 @@
   <tr><td><code>Sessions\…\zusammenfassung.md</code></td><td>die Chronik</td></tr>
   <tr><td><code>Sessions\…\transkript.txt</code></td><td>die komplette Abschrift mit Zeit und Sprecher</td></tr>
   <tr><td><code>Sessions\…\comic_vorlage.md</code></td><td>die Comic-Panels (falls erstellt)</td></tr>
+  <tr><td><code>Sessions\…\comic\</code></td><td>die gemalten Comic-Seiten und <code>Comic.pdf</code></td></tr>
 </table>
 
 <h2>Wenn etwas hakt</h2>

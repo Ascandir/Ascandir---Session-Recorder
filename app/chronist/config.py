@@ -186,7 +186,49 @@ def group(name=None):
         r = g.get("ich_rolle", "")
         if r.lower().startswith("spieler /"):
             g["ich_rolle"] = r.split("/", 1)[1].strip()
+    if "charaktere" not in raw:
+        g["charaktere"] = _migrate_characters(g)
     return g
+
+
+ARTEN = ["Hauptcharakter", "Gefährte", "Reittier", "Vertrauter", "Begleiter", "NPC", "Sonstige"]
+
+
+def _migrate_characters(g):
+    """Alte Struktur (Charakter je Spieler + Figuren) → eigenständige Charaktere."""
+    bilder = g.get("bilder", {}) or {}
+    out = []
+
+    def add(name, art, besitzer, aussehen, bild_key):
+        if not name:
+            return
+        out.append({"name": name, "art": art, "besitzer": besitzer, "aussehen": aussehen or "",
+                    "bilder": [bilder[bild_key]] if bilder.get(bild_key) else []})
+    ich = g.get("ich_name", "Ich")
+    add(g.get("ich_rolle", ""), "Hauptcharakter", ich, g.get("ich_aussehen", ""), ich)
+    for sp in g.get("spieler", []):
+        add(sp.get("charakter", ""), "Hauptcharakter", sp.get("name", ""), sp.get("aussehen", ""), sp.get("name"))
+    for f in g.get("figuren", []):
+        art = f.get("art") or "Gefährte"
+        add(f.get("name", ""), art, f.get("besitzer", ""), f.get("aussehen", ""), "fig:" + f.get("name", ""))
+    return out
+
+
+def characters(grp=None, owner=None):
+    grp = grp or group()
+    cs = [c for c in grp.get("charaktere", []) if c.get("name")]
+    return [c for c in cs if c.get("besitzer") == owner] if owner is not None else cs
+
+
+def main_character(owner, grp=None):
+    """Erster Hauptcharakter eines Spielers (für Anzeigen wie 'Laurent (Krätz und Knabba)')."""
+    cs = characters(grp, owner)
+    main = [c for c in cs if c.get("art", "Hauptcharakter") == "Hauptcharakter"]
+    return (main or [None])[0]
+
+
+def char_images(c, grp=None):
+    return [str(images_dir() / f) for f in (c.get("bilder") or []) if (images_dir() / f).exists()]
 
 
 def save_group(g, name=None):
@@ -283,14 +325,9 @@ def player_label(name, grp=None):
     if is_dm(name, grp):
         n = grp.get("ich_name", "Ich") if name == ICH_ID else name
         return f"{n} (DM)"
-    if name == ICH_ID or name == grp.get("ich_name"):
-        rolle = grp.get("ich_rolle", "").strip()
-        n = grp.get("ich_name", "Ich")
-        return f"{n} ({rolle})" if rolle else n
-    for s in grp.get("spieler", []):
-        if s.get("name") == name and s.get("charakter"):
-            return f"{name} ({s['charakter']})"
-    return name
+    n = grp.get("ich_name", "Ich") if name in (ICH_ID, grp.get("ich_name")) else name
+    mc = main_character(n, grp)
+    return f"{n} ({mc['name']})" if mc else n
 
 
 def image_path(name, grp=None):

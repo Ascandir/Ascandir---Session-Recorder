@@ -75,40 +75,35 @@ def ask(url, prompt, max_tokens=500):
     return f"Modell '{m}' antwortet: {_chat(cl, m, prompt, max_tokens)}"
 
 
+def _char_line(c, grp):
+    z = f"{c['name']} ({c.get('art') or 'Charakter'})"
+    if c.get("aussehen"):
+        z += f" – Aussehen: {c['aussehen']}"
+    if C.char_images(c, grp):
+        z += " [Referenzbild vorhanden]"
+    return z
+
+
 def _gruppe_text(grp):
     ich = grp.get("ich_name", "Ich")
-    if C.is_dm(C.ICH_ID, grp):
-        rows = [f"- {ich} ist der Spielleiter (DM): erzählt die Welt und spricht alle NPCs"]
-    else:
-        z = f"- Spieler {ich} spielt {grp.get('ich_rolle') or '?'}"
-        if grp.get("ich_aussehen"):
-            z += f" (Aussehen: {grp['ich_aussehen']})"
-        if C.image_path(ich, grp):
-            z += " [Referenzbild vorhanden]"
-        rows = [z]
-    for s in grp.get("spieler", []):
-        if not s.get("name"):
+    rows = []
+    for who in [ich] + [sp["name"] for sp in grp.get("spieler", []) if sp.get("name")]:
+        if C.is_dm(who if who != ich else C.ICH_ID, grp):
+            rows.append(f"- {who} ist der Spielleiter (DM): erzählt die Welt und spricht alle NPCs")
             continue
-        if C.is_dm(s["name"], grp):
-            rows.append(f"- {s['name']} ist der Spielleiter (DM): erzählt die Welt und spricht alle NPCs")
+        cs = C.characters(grp, who)
+        if not cs:
+            rows.append(f"- Spieler {who} (Charakter unbekannt)")
             continue
-        if s.get("name"):
-            z = f"- Spieler {s['name']} spielt {s.get('charakter') or '?'}"
-            if s.get("aussehen"):
-                z += f" (Aussehen: {s['aussehen']})"
-            if C.image_path(s["name"], grp):
-                z += " [Referenzbild vorhanden]"
-            rows.append(z)
-    figs = [f for f in grp.get("figuren", []) if f.get("name")]
-    if figs:
-        rows.append("Gefährten & weitere Figuren (gehören zu einem Spieler, tauchen im Bild bei ihm auf):")
-        for f in figs:
-            z = f"  - {f['name']}: {f.get('art') or 'Figur'} von {f.get('besitzer') or '?'}"
-            if f.get("aussehen"):
-                z += f" (Aussehen: {f['aussehen']})"
-            if C.image_path("fig:" + f["name"], grp):
-                z += " [Referenzbild vorhanden]"
-            rows.append(z)
+        main = [c for c in cs if c.get("art", "Hauptcharakter") == "Hauptcharakter"] or cs[:1]
+        rows.append(f"- Spieler {who} spielt " + "; ".join(_char_line(c, grp) for c in main))
+        for c in cs:
+            if c not in main:
+                rows.append(f"  - dazu gehört: {_char_line(c, grp)} – taucht im Bild bei {main[0]['name']} auf")
+    others = [c for c in C.characters(grp) if c.get("besitzer") not in
+              [ich] + [sp.get("name") for sp in grp.get("spieler", [])]]
+    for c in others:
+        rows.append(f"- Weitere Figur: {_char_line(c, grp)}")
     t = "Die Gruppe:\n" + "\n".join(rows)
     if grp.get("kontext"):
         t += "\n\nHintergrund zur Kampagne:\n" + grp["kontext"]
