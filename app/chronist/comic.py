@@ -25,10 +25,11 @@ UA = {"User-Agent": "Ascandir-SessionRecorder"}
 
 # Bildmodelle: "schnell" (4B, Apache 2.0) und "qualitaet" (9B, FLUX Non-Commercial – privat ok)
 MODELLE = {
-    "qualitaet": {"name": "Hohe Qualität (FLUX.2-klein 9B)", "groesse": "ca. 20 GB",
+    # Q5/Q4 statt Q8: passt mit Arbeitsspeicher fürs Rechnen in 16 GB Grafikspeicher (Q8 lief über)
+    "qualitaet": {"name": "Hohe Qualität (FLUX.2-klein 9B)", "groesse": "ca. 12 GB", "rev": 2,
                   "diff": ["leejet/FLUX.2-klein-9B-GGUF", "unsloth/FLUX.2-klein-9B-GGUF"],
-                  "diff_pref": ["Q8_0", "Q6_K", "Q5_K_M"],
-                  "llm": ["unsloth/Qwen3-8B-GGUF"], "llm_pref": ["Q8_0", "Q6_K", "Q4_K_M"],
+                  "diff_pref": ["Q5_K_M", "Q5_K_S", "Q4_K_M", "Q6_K"],
+                  "llm": ["unsloth/Qwen3-8B-GGUF"], "llm_pref": ["Q4_K_M", "Q5_K_M", "Q4_K_S"],
                   "offload": True},
     "schnell": {"name": "Schnell (FLUX.2-klein 4B)", "groesse": "ca. 9 GB",
                 "diff": ["unsloth/FLUX.2-klein-4B-GGUF", "leejet/FLUX.2-klein-4B-GGUF"],
@@ -144,6 +145,8 @@ def _mstate(st, m):
 def installed(m=None):
     m = m or modell()
     ms = _mstate(_state(), m)
+    if ms.get("rev", 1) != MODELLE[m].get("rev", 1):
+        return False
     return bool(sd_cli() and VAE_FILE.exists() and ms.get("diffusion") and ms.get("llm")
                 and (DIR / ms["diffusion"]).exists() and (DIR / ms["llm"]).exists())
 
@@ -182,6 +185,14 @@ def install(progress=lambda f, m: None, m=None):
         z.unlink()
         log.info("Bildgenerator installiert: %s", asset["name"])
     ms = dict(_mstate(st, m))
+    if ms.get("rev", 1) != spec.get("rev", 1):          # neue, kleinere Modellvariante → alte Dateien weg
+        for k in ("diffusion", "llm"):
+            old = ms.pop(k, None)
+            in_use = any(v.get(k) == old for kk, v in st.items() if kk != m and isinstance(v, dict))
+            if old and not in_use:
+                (DIR / old).unlink(missing_ok=True)
+                log.info("Alte Modelldatei entfernt: %s", old)
+        ms["rev"] = spec.get("rev", 1)
     if not ms.get("diffusion") or not (DIR / ms["diffusion"]).exists():
         ms["diffusion"] = _fetch_model(spec["diff"], spec["diff_pref"], progress,
                                        f"Bildmodell ({spec['name']}) wird geladen", 0.05, 0.55)
@@ -402,32 +413,80 @@ def gen_size(box_w, box_h, mp=1.05):
     return r(w), r(h)
 
 
+MEM_HINTS = ("memory", "capacity", "out of vram", "allocate", "OutOfDeviceMemory")
+
+
+_HELP = {}
+
+
+def _supports(exe, flag):
+    """Kennt diese sd-cli-Version den Schalter? (ältere Versionen brechen bei unbekannten ab)"""
+    if exe not in _HELP:
+        try:
+            r = subprocess.run([str(exe), "--help"], capture_output=True, text=True, encoding="utf-8",
+                               errors="replace", creationflags=NOWIN, cwd=str(exe.parent), env=C.ORIG_ENV, timeout=60)
+            _HELP[exe] = r.stdout + r.stderr
+        except Exception:
+            _HELP[exe] = ""
+    return flag in _HELP[exe]
+
+
+def _run_sd(cmd, exe):
+    return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                          creationflags=NOWIN, cwd=str(exe.parent), env=C.ORIG_ENV)
+
+
 def generate_panel(prompt, refs, out_png, seed, w=1024, h=768, plan=None, m=None):
     m = m or modell()
     ms = _mstate(_state(), m)
     exe = sd_cli()
-    cmd = [str(exe), "--diffusion-model", str(DIR / ms["diffusion"]), "--vae", str(VAE_FILE),
-           "--llm", str(DIR / ms["llm"]), "-p", prompt, "--cfg-scale", "1.0", "--steps", "4",
-           "-W", str(w), "-H", str(h), "-s", str(seed), "-o", str(out_png),
-           "--diffusion-fa", "--vae-tiling"]
-    if MODELLE[m]["offload"]:
-        cmd += ["--offload-to-cpu"]          # 9B + Textmodell passen so sicher in 16 GB Grafikspeicher
     plan = assign_refs(refs) if plan is None else plan
-    n = 0
+    ref_args = []
     for r, imgs in plan:
         for b in imgs:
-            cmd += ["-r", _ref_file(b, Path(out_png).parent / "_referenzen")]
-            n += 1
+            ref_args += ["-r", _ref_file(b, Path(out_png).parent / "_referenzen")]
     log.info("Panel malen: %s – Figuren: %s – %s Referenzbild(er)", Path(out_png).name,
-             ", ".join(r["anzeige"] for r in refs) or "keine erkannt", n)
+             ", ".join(r["anzeige"] for r in refs) or "keine erkannt", len(ref_args) // 2)
+
+    def build(gw, gh, refs_args, disk=False):
+        cmd = [str(exe), "--diffusion-model", str(DIR / ms["diffusion"]), "--vae", str(VAE_FILE),
+               "--llm", str(DIR / ms["llm"]), "-p", prompt, "--cfg-scale", "1.0", "--steps", "4",
+               "-W", str(gw), "-H", str(gh), "-s", str(seed), "-o", str(out_png),
+               "--diffusion-fa", "--vae-tiling"]
+        if MODELLE[m]["offload"]:
+            # Gewichte im Arbeitsspeicher, nur bei Bedarf auf die Grafikkarte; 1 GB Reserve für Windows/Discord
+            cmd += ["--offload-to-cpu"]
+            if _supports(exe, "--max-vram"):
+                cmd += ["--max-vram", "-1"]
+        if disk and _supports(exe, "--params-backend"):
+            cmd += ["--params-backend", "te=disk"]     # Textmodell nach dem Lesen des Prompts wieder freigeben
+        return cmd + refs_args
+
+    # Versuche: normal → kleiner gemalt → zusätzlich Textmodell von der Platte → mit weniger Vorlagen
+    small = gen_size(w, h, mp=0.7)
+    big = MODELLE[m]["offload"]
+    tries = [(w, h, ref_args, big), (*small, ref_args, True), (*gen_size(w, h, mp=0.55), ref_args[:4], True)]
     t0 = time.time()
-    p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                       creationflags=NOWIN, cwd=str(exe.parent), env=C.ORIG_ENV)
-    if p.returncode != 0 or not Path(out_png).exists():
-        tail = "\n".join((p.stdout + p.stderr).strip().splitlines()[-12:])
-        log.error("Bildgenerator-Fehler (Code %s):\n%s", p.returncode, tail)
-        raise RuntimeError(f"Der Bildgenerator hat kein Bild erzeugt (Code {p.returncode}).\n\n{tail}")
-    log.info("Panel fertig in %.0f s", time.time() - t0)
+    last = ""
+    for i, (gw, gh, ra, disk) in enumerate(tries):
+        Path(out_png).unlink(missing_ok=True)
+        p = _run_sd(build(gw, gh, ra, disk), exe)
+        if p.returncode == 0 and Path(out_png).exists():
+            if i:
+                log.info("Panel mit Sparversuch %s gemalt (%sx%s)", i, gw, gh)
+            log.info("Panel fertig in %.0f s", time.time() - t0)
+            return
+        last = "\n".join((p.stdout + p.stderr).strip().splitlines()[-12:])
+        log.error("Bildgenerator-Fehler (Code %s, Versuch %s):\n%s", p.returncode, i + 1, last)
+        if not any(k.lower() in last.lower() for k in MEM_HINTS):
+            break                                  # kein Speicherproblem → Weiterprobieren bringt nichts
+    if any(k.lower() in last.lower() for k in MEM_HINTS):
+        raise RuntimeError(
+            "Der Grafikspeicher reicht gerade nicht. Meist belegt ein anderes Programm viel davon – "
+            "z. B. Strata/SillyTavern, ein Spiel, Foundry im Browser oder Vesktop mit Hardwarebeschleunigung. "
+            "Schließ das kurz und versuch es noch einmal, oder stell unter ⚙️ Einstellungen das Bildmodell "
+            "„Schnell“ ein.\n\nTechnische Details:\n" + last)
+    raise RuntimeError(f"Der Bildgenerator hat kein Bild erzeugt.\n\n{last}")
 
 
 # ---------- Seiten bauen ----------

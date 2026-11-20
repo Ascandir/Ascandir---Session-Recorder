@@ -1,6 +1,3 @@
-- **🎧 Jede Person auf eigener Spur (Vesktop):** Neues Vencord-Plugin für Vesktop. Während der SessionRecorder aufnimmt, speichert es jede Person im Sprachkanal als eigene Tonspur direkt in den Aufnahmeordner. Die Stimmtrennung entfällt, nichts kann mehr vertauscht werden
-- Einrichten mit einem Klick unter ⚙️ Einstellungen → 🎧 Einzelspuren: lädt das Plugin, stellt Vesktop darauf um und schaltet es ein
-- Bei der Auswertung erscheint jede Person mit ihrem Discord-Namen. Die Zuordnung zum Spieler wird pro Discord-Konto gemerkt und ist beim nächsten Mal vorausgefüllt
-- Aufnahme-Tab zeigt „Vesktop-Plugin verbunden“ und wie viele Personen schon eigene Spuren haben
-- Die gemischte Discord-Spur wird jetzt auch aus Vesktop aufgenommen
-- Debug-Log enthält den Plugin-Status und das Protokoll der letzten Einzelspur-Aufnahme
+- **Comic mit „Hohe Qualität“ läuft jetzt auf 16 GB Grafikspeicher:** Das 9B-Modell nutzt nun eine kleinere Variante (Q5 statt Q8, kaum sichtbarer Unterschied), das Textmodell wird nach dem Lesen des Prompts wieder freigegeben, und 1 GB bleibt für Windows und Discord frei. Die alten, größeren Dateien werden automatisch gelöscht und die neuen geladen (ca. 12 GB statt 20 GB)
+- Reicht der Speicher trotzdem nicht, malt das Tool das Panel automatisch kleiner bzw. mit weniger Vorlagebildern, statt abzubrechen
+- Klare Fehlermeldung, wenn ein anderes Programm (Strata, Spiel, Browser) den Grafikspeicher belegt
