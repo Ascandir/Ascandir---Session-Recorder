@@ -449,9 +449,13 @@ def start_bridge():
                     REC.plugin_info = info
             except Exception:
                 pass
-            self.do_GET()
+            self._answer()
 
         def do_GET(self):
+            REC.plugin_info = {"alt": True}       # Plugin von vor 2.6.0 schickt keine Kanal-Infos
+            self._answer()
+
+        def _answer(self):
             if self.path.split("?")[0] != "/status":
                 self.send_error(404)
                 return
@@ -486,6 +490,21 @@ def start_bridge():
 
 def plugin_connected():
     return time.time() - REC.plugin_seen < 5
+
+
+PLUGIN_MIN_VERSION = 2
+
+
+def plugin_state():
+    """'aus' | 'alt' | 'kein_kanal' | 'ok'"""
+    if not plugin_connected():
+        return "aus"
+    info = REC.plugin_info or {}
+    if info.get("alt") or int(info.get("version") or 0) < PLUGIN_MIN_VERSION:
+        return "alt"
+    if not info.get("kanal"):
+        return "kein_kanal"
+    return "ok"
 
 
 def channel_people():

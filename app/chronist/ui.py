@@ -836,8 +836,47 @@ def mic_choices():
 _PEOPLE_SIG = [None]
 
 
+def plugin_hint():
+    from .recorder import plugin_state
+    stt = plugin_state()
+    return {
+        "aus": "🎧 **Einzelspuren:** Vesktop-Plugin nicht verbunden – ohne Plugin wird Discord gesamt aufgenommen. "
+               "(Einrichten unter ⚙️ Einstellungen → 🎧 Einzelspuren)",
+        "alt": "🎧 **Einzelspuren:** Das Plugin in Vesktop ist veraltet – für die Personen-Liste bitte aktualisieren.",
+        "kein_kanal": "🎧 **Einzelspuren:** Plugin verbunden ✅ – sobald du in Vesktop in einem Sprachkanal bist, "
+                      "erscheinen hier alle Personen zum An- und Abwählen.",
+        "ok": "🎧 **Einzelspuren:** Plugin verbunden ✅ – Haken weg = diese Person wird nicht aufgenommen. "
+              "Du hörst sie in Discord ganz normal weiter.",
+    }[stt]
+
+
+def do_plugin_update(progress=gr.Progress()):
+    from . import vesktop as V
+    try:
+        V.install(lambda f, m: progress(f, desc=m), restart=True)
+    except Exception as e:
+        log.exception("Plugin-Update")
+        raise gr.Error(f"Aktualisieren fehlgeschlagen: {e}")
+    return "🎧 Plugin aktualisiert – Vesktop startet neu. In ein paar Sekunden erscheint hier die Personen-Liste."
+
+
+_HINT = [None]
+
+
 def people_update(force=False):
-    """Auswahl-Liste der Personen im Sprachkanal – nur neu zeichnen, wenn sich jemand ändert."""
+    """Auswahl-Liste + Plugin-Hinweis – nur neu zeichnen, wenn sich etwas ändert."""
+    from .recorder import plugin_state
+    hint = plugin_hint()
+    stt = plugin_state()
+    if hint != _HINT[0] or force:
+        _HINT[0] = hint
+        h = (gr.update(value=hint), gr.update(visible=stt == "alt"))
+    else:
+        h = (gr.update(), gr.update())
+    return (_people_list(force),) + h
+
+
+def _people_list(force=False):
     from .recorder import channel_people
     ppl = channel_people()
     grp = C.group(getattr(REC, "group", None) if REC.running else None)
@@ -1020,6 +1059,10 @@ def build():
                                    info="So heißt später die Aufnahme-Datei (mit Datum davor)",
                                    interactive=not REC.running)
             rec_md = gr.Markdown(rec_status())
+            with gr.Group():
+                plug_md = gr.Markdown(plugin_hint())
+                plug_upd = gr.Button("🔄 Plugin jetzt aktualisieren (Vesktop startet kurz neu)", visible=False,
+                                     size="sm")
             who = gr.CheckboxGroup(label="🎧 Wer wird aufgenommen? (Vesktop)", choices=[], visible=False,
                                    info="✔ = wird aufgenommen · Haken weg = 🔇 stumm: von dieser Person wird nichts "
                                         "aufgezeichnet. Wirkt sofort, auch mitten in der Aufnahme (z. B. kurz stumm "
@@ -1286,7 +1329,8 @@ def build():
             lambda: gr.update(interactive=True), None, rec_group).then(
             lambda: gr.Tabs(selected="auswerten"), None, tabs)
         timer.tick(rec_status, None, rec_md)
-        people_timer.tick(people_update, None, who, show_progress="hidden")
+        people_timer.tick(people_update, None, [who, plug_md, plug_upd], show_progress="hidden")
+        plug_upd.click(do_plugin_update, None, plug_md)
         who.input(save_who, who, None)
         quit_btn.click(do_quit, None, quit_md)
 

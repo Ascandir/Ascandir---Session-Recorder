@@ -75,11 +75,45 @@ def _release():
         return json.load(r)
 
 
-def install(progress=lambda f, m: None):
-    """Lädt das fertig gebaute Vencord (mit Plugin), entpackt es und stellt Vesktop darauf um."""
+def _vesktop_procs():
+    import psutil
+    out = []
+    for p in psutil.process_iter(["name", "exe"]):
+        try:
+            if (p.info["name"] or "").lower() == "vesktop.exe":
+                out.append(p)
+        except Exception:
+            pass
+    return out
+
+
+def install(progress=lambda f, m: None, restart=False):
+    """Lädt das fertig gebaute Vencord (mit Plugin), entpackt es und stellt Vesktop darauf um.
+    restart=True: ein laufendes Vesktop wird dafür kurz beendet und danach wieder gestartet."""
+    exe = None
     if vesktop_running():
-        raise RuntimeError("Bitte Vesktop zuerst ganz schließen (auch unten rechts im Infobereich), "
-                           "dann noch einmal klicken.")
+        if not restart:
+            raise RuntimeError("Bitte Vesktop zuerst ganz schließen (auch unten rechts im Infobereich), "
+                               "dann noch einmal klicken.")
+        import time
+        procs = _vesktop_procs()
+        exe = next((p.info["exe"] for p in procs if p.info.get("exe")), None)
+        progress(0.02, "Vesktop wird kurz beendet …")
+        for p in procs:
+            try:
+                p.terminate()
+            except Exception:
+                pass
+        for _ in range(20):
+            if not vesktop_running():
+                break
+            time.sleep(0.5)
+        for p in _vesktop_procs():
+            try:
+                p.kill()
+            except Exception:
+                pass
+        time.sleep(1)
     progress(0.05, "Suche das neueste Plugin …")
     rel = _release()
     asset = next((a for a in rel.get("assets", []) if a["name"] == ASSET), None)
@@ -124,6 +158,15 @@ def install(progress=lambda f, m: None):
     except Exception as e:
         log.warning("Vencord-Einstellungen nicht angepasst: %s", e)
     log.info("Vesktop-Plugin installiert (%s) und Vesktop umgestellt: %s", installed_version(), VENCORD_DIR)
+    if exe:
+        import subprocess
+        progress(0.95, "Vesktop wird wieder gestartet …")
+        try:
+            subprocess.Popen([exe], env=C.ORIG_ENV, close_fds=True,
+                             creationflags=getattr(subprocess, "DETACHED_PROCESS", 0)
+                             | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+        except Exception as e:
+            log.warning("Vesktop konnte nicht neu gestartet werden: %s", e)
     progress(1.0, "Fertig.")
 
 

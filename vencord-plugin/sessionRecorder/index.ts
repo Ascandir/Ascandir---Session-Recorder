@@ -16,6 +16,7 @@ import { ChannelStore, GuildMemberStore, MediaEngineStore, SelectedChannelStore,
 
 const Native = VencordNative.pluginHelpers.AscandirSessionRecorder as PluginNative<typeof import("./native")>;
 const logger = new Logger("AscandirSessionRecorder");
+const PLUGIN_VERSION = 2;
 
 const settings = definePluginSettings({
     port: {
@@ -312,7 +313,7 @@ function channelInfo() {
         }
     } catch { }
     const name = channel ? ChannelStore.getChannel(channel)?.name : undefined;
-    return { kanal: channel, kanal_name: name, personen: people, webrtc: pcs.size > 0 };
+    return { version: PLUGIN_VERSION, kanal: channel, kanal_name: name, personen: people, webrtc: pcs.size > 0 };
 }
 
 let busy = false;

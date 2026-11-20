@@ -1,3 +1,3 @@
-- **Comic-Hänger behoben (vermutete Ursache):** Seit der automatischen Turnaround-Zerlegung bekam der Bildgenerator Vorlagebilder mit krummen Größen (z. B. 222×512 Pixel). Damit blieb er auf der Grafikkarte stehen, während der Prozessor heiß lief – egal ob „Schnell“ oder „Hohe Qualität“. Alle Vorlagebilder werden jetzt auf saubere Größen (Vielfache von 64 Pixel) gebracht, ohne verzerrt zu werden
-- Die Sperre für „Hohe Qualität“ aus 2.6.2 wird aufgehoben, weil das Modell gar nicht schuld war
-- Wächter greift jetzt nach 2½ Minuten ohne Fortschritt; hängt ein Panel auch mit „Schnell“, wird es ohne Vorlagebilder gemalt, damit der Comic trotzdem fertig wird
+- **Einzelspur-Bereich immer sichtbar im Aufnahme-Tab:** Zeigt, ob das Vesktop-Plugin verbunden ist, ob du in einem Sprachkanal bist, und dann die Personen-Liste zum An- und Abwählen
+- **Veraltetes Plugin wird erkannt:** Ein Klick auf „Plugin jetzt aktualisieren“ beendet Vesktop kurz, spielt das neue Plugin ein und startet Vesktop wieder – kein Umweg über die Einstellungen mehr
+- Klarstellung im Tool: Abwählen betrifft nur die Aufnahme, in Discord hörst du alle ganz normal weiter
