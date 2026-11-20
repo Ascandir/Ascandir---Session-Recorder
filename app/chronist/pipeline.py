@@ -28,7 +28,8 @@ def session_dir(title):
 
 def _prompt(grp):
     names = [s.get("charakter", "") for s in grp.get("spieler", [])] + \
-            [s.get("name", "") for s in grp.get("spieler", [])]
+            [s.get("name", "") for s in grp.get("spieler", [])] + \
+            [f.get("name", "") for f in grp.get("figuren", [])] + [grp.get("ich_rolle", "")]
     names = ", ".join(n for n in names if n)
     p = "Eine Dungeons-and-Dragons-Runde auf Deutsch."
     if names:

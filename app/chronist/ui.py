@@ -28,7 +28,7 @@ footer {display: none !important;}
 .status-small {min-height: 0 !important;}
 h4 {margin-top: 18px !important; color: #f2a93b;}
 """
-MAX_BILDER = 10
+MAX_BILDER = 24
 EXT = {".mka", ".mkv", ".mp4", ".mov", ".wav", ".mp3", ".flac", ".m4a", ".ogg", ".aac"}
 
 
@@ -249,7 +249,20 @@ def dm_choices(g=None):
             + [(sp["name"], sp["name"]) for sp in g.get("spieler", []) if sp.get("name")])
 
 
-def save_group(ich_name, ich_rolle, dm, table, kontext):
+FIG = "fig:"          # Schlüssel-Präfix für Gefährten & weitere Figuren
+
+
+def owner_choices(g=None):
+    g = g or C.group()
+    return [g.get("ich_name", "Ich")] + [sp["name"] for sp in g.get("spieler", []) if sp.get("name")]
+
+
+def fig_label(f):
+    art = f.get("art") or "Figur"
+    return f"{f['name']} ({art} von {f.get('besitzer') or '?'})"
+
+
+def save_group(ich_name, ich_rolle, dm, table, kontext, fig_table=None):
     old = C.group()
     looks = {sp.get("name"): sp.get("aussehen", "") for sp in old.get("spieler", [])}
     rows = []
@@ -261,13 +274,30 @@ def save_group(ich_name, ich_rolle, dm, table, kontext):
     names = {r["name"] for r in rows}
     if dm != C.ICH_ID and dm not in names:
         dm = C.ICH_ID
+    # Gefährten & weitere Figuren (Aussehen bleibt beim Namen erhalten)
+    old_figs = {f.get("name"): f for f in old.get("figuren", [])}
+    owners = [ich_name.strip() or "Ich"] + [r["name"] for r in rows]
+    figs, warn = [], []
+    for r in (fig_table if fig_table is not None else
+              [[f.get("besitzer"), f.get("name"), f.get("art")] for f in old.get("figuren", [])]):
+        r = list(r) + ["", "", ""]
+        name = str(r[1] or "").strip()
+        if not name:
+            continue
+        owner = str(r[0] or "").strip()
+        if owner and owner not in owners:
+            warn.append(f"„{owner}“ (bei {name}) ist kein Mitglied der Gruppe")
+        figs.append({"besitzer": owner, "name": name, "art": str(r[2] or "").strip(),
+                     "aussehen": old_figs.get(name, {}).get("aussehen", "")})
     g = {"ich_name": ich_name.strip() or "Ich", "ich_rolle": ich_rolle.strip(), "dm": dm,
          "spieler": rows, "kontext": kontext, "bilder": old.get("bilder", {}),
-         "ich_aussehen": old.get("ich_aussehen", "")}
+         "ich_aussehen": old.get("ich_aussehen", ""), "figuren": figs}
     C.save_group(g)
     wer = "Du bist der DM." if dm == C.ICH_ID else f"{dm} ist der DM."
-    return ([f"Gespeichert: {len(rows)} Spieler. {wer}", gr.update(value=len(rows)),
-             gr.update(choices=dm_choices(g), value=dm)] + image_updates())
+    msg = f"Gespeichert: {len(rows)} Spieler, {len(figs)} weitere Figuren. {wer}"
+    if warn:
+        msg += "  \n⚠️ " + "; ".join(warn)
+    return ([msg, gr.update(value=len(rows)), gr.update(choices=dm_choices(g), value=dm)] + image_updates())
 
 
 # ---------- Gruppen ----------
@@ -330,7 +360,8 @@ def group_refresh(*radio_vals):
            gr.update(choices=P.list_sessions(), value=None),
            gr.update(value=n_spieler() or 4), gr.update(value=n_spieler() or 4),
            g["ich_name"], g["ich_rolle"], gr.update(choices=dm_choices(g), value=g.get("dm", C.ICH_ID)),
-           rows, g.get("kontext", ""), gr.update(choices=list(C.voices()), value=None),
+           rows, [[f.get("besitzer", ""), f.get("name", ""), f.get("art", "")] for f in g.get("figuren", [])]
+           or [["", "", ""]] * 3, g.get("kontext", ""), gr.update(choices=list(C.voices()), value=None),
            f"Gruppe: **{a}** · Aufnahmen landen in `{C.recordings_dir()}`"]
     names = name_choices()
     out += [gr.update(choices=names, value=None) for _ in range(MAX_STIMMEN)]
@@ -345,11 +376,16 @@ def persons():
     for sp in g.get("spieler", []):
         if sp.get("name"):
             out.append((sp["name"], C.player_label(sp["name"], g)))
+    for f in g.get("figuren", []):
+        if f.get("name"):
+            out.append((FIG + f["name"], "🐾 " + fig_label(f)))
     return out[:MAX_BILDER]
 
 
 def appearance(name, g=None):
     g = g or C.group()
+    if name.startswith(FIG):
+        return next((f.get("aussehen", "") for f in g.get("figuren", []) if f.get("name") == name[len(FIG):]), "")
     if name == g.get("ich_name"):
         return g.get("ich_aussehen", "")
     return next((sp.get("aussehen", "") for sp in g.get("spieler", []) if sp.get("name") == name), "")
@@ -361,7 +397,11 @@ def save_look(i, text):
         return ""
     name, lab = ps[i]
     g = C.group()
-    if name == g.get("ich_name"):
+    if name.startswith(FIG):
+        for f in g.get("figuren", []):
+            if f.get("name") == name[len(FIG):]:
+                f["aussehen"] = (text or "").strip()
+    elif name == g.get("ich_name"):
         g["ich_aussehen"] = (text or "").strip()
     else:
         for sp in g.get("spieler", []):
@@ -824,11 +864,19 @@ def build():
                 datatype=["str", "str"], type="array", interactive=True,
                 value=[[s["name"], s.get("charakter", "")] for s in grp["spieler"]] or [["", ""]] * 5,
                 column_count=(2, "fixed"), row_count=(5, "dynamic"))
+            gr.Markdown("**🐾 Gefährten & weitere Figuren** – tierische Gefährten, Reittiere, Vertraute, "
+                        "Begleiter … Unter „Gehört zu“ den Spielernamen (oder deinen) eintragen.")
+            fig_table = gr.Dataframe(
+                headers=["Gehört zu", "Name der Figur", "Art (z. B. Wolf-Gefährte, Reittier, Vertrauter)"],
+                datatype=["str", "str", "str"], type="array", interactive=True,
+                value=[[f.get("besitzer", ""), f.get("name", ""), f.get("art", "")] for f in grp.get("figuren", [])]
+                      or [["", "", ""]] * 3,
+                column_count=(3, "fixed"), row_count=(3, "dynamic"))
             kontext = gr.Textbox(label="Kampagne & wichtige Namen (NPCs, Orte, Götter …)",
                                  lines=4, value=grp["kontext"])
             save_g = gr.Button("Speichern", variant="primary")
             g_status = gr.Markdown()
-            gr.Markdown("### 🖼️ Charaktere: Bild & Aussehen\nFür den Comic. Bild hineinziehen, anklicken oder mit "
+            gr.Markdown("### 🖼️ Charaktere & Gefährten: Bild & Aussehen\nFür den Comic. Bild hineinziehen, anklicken oder mit "
                         "Strg+V einfügen; das Aussehen einfach ins Feld schreiben oder hineinkopieren. Beides wird "
                         "sofort gespeichert. Neue Spieler erscheinen hier nach dem Speichern oben.")
             img_slots, look_boxes = [], []
@@ -925,7 +973,7 @@ def build():
         quit_btn.click(do_quit, None, quit_md)
 
         G_OUTS = [rec_group, ev_group, grp_sel, rec, alte, n_andere, resplit_n, ich_name, ich_rolle, dm_dd,
-                  table, kontext, vlist, rec_group_md] + [r[3] for r in rows] + img_slots + look_boxes
+                  table, fig_table, kontext, vlist, rec_group_md] + [r[3] for r in rows] + img_slots + look_boxes
         for sel in (rec_group, ev_group, grp_sel):
             sel.input(do_switch_group, sel, None).then(group_refresh, None, G_OUTS)
         new_btn.click(do_create_group, new_name, [grp_status, new_name]).then(group_refresh, None, G_OUTS)
@@ -979,7 +1027,7 @@ def build():
                                        concurrency_limit=None, show_progress_on=[resplit_status])
         cancel_btn.click(do_cancel, None, status, cancels=[ev_go, ev_fin, ev_comic, ev_resplit])
         folder_btn.click(open_folder, state, folder_md)
-        save_g.click(save_group, [ich_name, ich_rolle, dm_dd, table, kontext],
+        save_g.click(save_group, [ich_name, ich_rolle, dm_dd, table, kontext, fig_table],
                      [g_status, n_andere, dm_dd] + img_slots + look_boxes).then(
             lambda *vals: [gr.update(choices=name_choices(), value=v if v in name_choices() else None)
                            for v in vals], [r[3] for r in rows], [r[3] for r in rows])

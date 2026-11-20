@@ -1,5 +1,4 @@
-- **Saubere Hörproben bei „Wer ist wer?“:** Jede Hörprobe besteht nur noch aus Stellen, die eindeutig nach dieser Person klingen und an denen niemand dazwischenredet – verteilt über die ganze Session. Im Test: 95–100 % sauber, 0 % Durcheinander (vorher bis zu 50 %)
-- **Durcheinander-Reden wird erkannt:** Stellen, an denen mehrere gleichzeitig reden, fließen nicht mehr in die Stimmerkennung ein
-- **Keine „Gemisch-Stimmen“ mehr:** Gruppen, die nur aus Durcheinander bestehen, werden aufgelöst und auf die echten Personen verteilt
-- Leise Spieler:innen, die wenig sagen, bleiben als eigene Stimme erhalten, statt jemand anderem zugeschlagen zu werden
-- Die gelernten Stimmabdrücke werden ebenfalls nur aus sauberen Stellen gebildet → zuverlässigere Wiedererkennung
+- **🐾 Gefährten & weitere Figuren:** Jedem Spieler (und dir) lassen sich beliebig viele weitere Figuren zuordnen – tierische Gefährten, Reittiere, Vertraute, Begleiter (Tab 👥 Gruppe, neue Tabelle „Gehört zu / Name / Art“)
+- Jede Figur bekommt eine eigene Karte mit **Bild** und **Aussehen**, genau wie die Hauptcharaktere
+- Chronik und Comic-Vorlage wissen, wem welche Figur gehört, und zeigen Gefährten bei ihrem Besitzer; die Spracherkennung kennt die Namen
+- Hinweis beim Speichern, wenn „Gehört zu“ kein Mitglied der Gruppe ist

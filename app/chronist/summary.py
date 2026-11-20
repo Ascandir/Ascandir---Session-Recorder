@@ -99,6 +99,16 @@ def _gruppe_text(grp):
             if C.image_path(s["name"], grp):
                 z += " [Referenzbild vorhanden]"
             rows.append(z)
+    figs = [f for f in grp.get("figuren", []) if f.get("name")]
+    if figs:
+        rows.append("Gefährten & weitere Figuren (gehören zu einem Spieler, tauchen im Bild bei ihm auf):")
+        for f in figs:
+            z = f"  - {f['name']}: {f.get('art') or 'Figur'} von {f.get('besitzer') or '?'}"
+            if f.get("aussehen"):
+                z += f" (Aussehen: {f['aussehen']})"
+            if C.image_path("fig:" + f["name"], grp):
+                z += " [Referenzbild vorhanden]"
+            rows.append(z)
     t = "Die Gruppe:\n" + "\n".join(rows)
     if grp.get("kontext"):
         t += "\n\nHintergrund zur Kampagne:\n" + grp["kontext"]
@@ -168,7 +178,7 @@ Erstelle daraus eine Comic-Vorlage mit 8 bis 12 Panels, die die Sitzung als kurz
 Für jedes Panel in Markdown:
 ### Panel N
 - **Szene:** Ort, Licht, Stimmung
-- **Im Bild:** welche Charaktere, was sie tun (Aussehen beachten, soweit bekannt)
+- **Im Bild:** welche Charaktere und Gefährten, was sie tun (Aussehen beachten, soweit bekannt; Gefährten bei ihrem Besitzer zeigen, wenn sie in der Szene vorkommen)
 - **Sprechblasen:** kurz, höchstens zwei pro Panel, mit Sprecher
 - **Bild-Prompt (Englisch):** eine Beschreibung für einen Bildgenerator, beginnend mit „comic book panel, fantasy,“"""
 
