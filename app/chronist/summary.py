@@ -169,7 +169,7 @@ Hier ist die Chronik einer Spielsitzung:
 
 {text}
 
-Erstelle daraus eine Comic-Vorlage mit 8 bis 12 Panels, die die Sitzung als kurze Comic-Geschichte erzählt (die spannendsten und lustigsten Momente).
+Erstelle daraus eine Comic-Vorlage mit 10 bis 14 Panels, die die Sitzung als kurze Comic-Geschichte erzählt (die spannendsten und lustigsten Momente).
 Für jedes Panel in Markdown:
 ### Panel N
 - **Szene:** Ort, Licht, Stimmung

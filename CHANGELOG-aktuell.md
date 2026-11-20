@@ -1,7 +1,8 @@
-- **Comic: Charaktere werden jetzt zuverlässig erkannt.** Bisher wurden Figuren nur über ihren Charakternamen gefunden. Stand in der Vorlage „Tim, Joscha und Nancy“ oder „die Gruppe“, gab es keine Referenzbilder. Jetzt zählen auch Spielernamen (→ deren Hauptcharakter), Sprecher und Wörter wie „Gruppe“ oder „adventurers“
-- **Turnaround-Bögen** (mehrere Ansichten nebeneinander) werden automatisch zerlegt; als Vorlage dient die erste Ansicht in voller Größe statt eines winzig verkleinerten Bogens
-- Referenzbilder werden fair verteilt (erst ein Bild pro Figur), und die Bildnummern im Prompt passen immer zu den mitgegebenen Bildern
-- Neuer Bild-Prompt im Format, das FLUX.2 für Referenzen erwartet: Figuren zuerst („X is the character shown in image 1 …“) mit Aussehen, dann Handlung und Szene
-- Die KI schreibt die Comic-Vorlage jetzt mit Charakternamen statt Spielernamen und beschreibt das Aussehen im Bild-Prompt
-- Die Comic-Vorlage ist editierbar; Änderungen werden beim Malen übernommen
-- Im Session-Ordner zeigt `comic\panels.txt` pro Panel, welche Figuren und Bilder erkannt wurden, samt Prompt
+- **📱 Manhwa / Webtoon-Format (neuer Standard):** ein langer Streifen zum Scrollen, Panels in voller Breite oder versetzt, mit viel Luft dazwischen, ovale Sprechblasen, Farbe im Manhwa-Stil
+- **📖 Manga-Seiten:** Kapitel-Auftakt als ganze Seite mit Titel, danach 3–4 Panels pro Seite in wechselnden Aufteilungen (hoch, breit, Nahaufnahme), Schwarz-Weiß mit Rasterfolie
+- Klassische Comic-Seiten gibt es weiterhin, jetzt aber mit höchstens 4 Panels pro Seite statt 5 gequetschten
+- Jedes Panel wird im richtigen Seitenverhältnis gemalt (hoch, breit, quadratisch) und bekommt einen passenden Bildausschnitt (Totale, Ganzkörper, Nahaufnahme, Splash) – nichts wird mehr weggeschnitten
+- **Neues Bildmodell „Hohe Qualität“ (FLUX.2-klein 9B, Standard):** deutlich bessere Charakterkonsistenz und Details, dafür langsamer (grob 1–2 Min. pro Panel) und ca. 20 GB Download. „Schnell“ (4B) bleibt wählbar
+- Einstellungen: Bildmodell, Comic-Format und optional eigener Zeichenstil; leer bleibt der passende Stil zum Format
+- Die Comic-Seiten werden im Tool in einem Scroll-Betrachter angezeigt
+- Comic-Vorlagen haben jetzt 10–14 Panels

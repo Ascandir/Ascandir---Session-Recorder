@@ -1,4 +1,5 @@
 """Bedienoberfläche im Browser (läuft nur auf deinem PC: http://127.0.0.1:7860)."""
+import json
 import os
 import sys
 import threading
@@ -258,17 +259,34 @@ def do_draw(state, edited="", progress=gr.Progress()):
         raise gr.Error(f"Comic konnte nicht gemalt werden: {e}")
     pdf = Path(state["ordner"]) / "comic" / "Comic.pdf"
     tpl = (Path(state["ordner"]) / "comic_vorlage.md").read_text(encoding="utf-8")
-    return (f"✅ Fertig: **{len(pages)} Seite(n)** – liegen auch im Session-Ordner unter `comic`.", pages,
+    return (f"✅ Fertig: **{len(pages)} Seite(n)** – liegen auch im Session-Ordner unter `comic`.", comic_viewer(pages),
             gr.update(value=str(pdf) if pdf.exists() else None, visible=pdf.exists()), tpl)
+
+
+def comic_viewer(pages):
+    """Seiten/Webtoon-Abschnitte untereinander zum Scrollen – wie in einer Manhwa-App."""
+    if not pages:
+        return ""
+    from urllib.parse import quote
+    imgs = "".join(f'<img src="/gradio_api/file={quote(str(p))}" style="width:100%;display:block;margin:0 auto 18px;'
+                   f'max-width:900px;border-radius:4px">' for p in pages)
+    return f'<div style="max-height:900px;overflow-y:auto;background:#111;padding:14px;border-radius:10px">{imgs}</div>'
 
 
 def existing_pages(state):
     if not state:
-        return [], gr.update(visible=False)
+        return "", gr.update(visible=False)
     d = Path(state["ordner"]) / "comic"
-    pages = sorted(str(p) for p in d.glob("seite_*.png")) if d.exists() else []
-    pdf = d / "Comic.pdf"
-    return pages, gr.update(value=str(pdf) if pdf.exists() else None, visible=pdf.exists())
+    pages = []
+    if (d / "seiten.json").exists():
+        try:
+            pages = [str(d / n) for n in json.loads((d / "seiten.json").read_text(encoding="utf-8")) if (d / n).exists()]
+        except Exception:
+            pages = []
+    if not pages and d.exists():
+        pages = sorted(str(p) for p in d.glob("seite_*.png"))
+    return comic_viewer(pages), gr.update(value=str(d / "Comic.pdf") if (d / "Comic.pdf").exists() else None,
+                                          visible=(d / "Comic.pdf").exists())
 
 
 @_busy_guard
@@ -635,13 +653,32 @@ def _ki_status(mode, st):
     return f"Es wird die KI unter `{st['llm_url']}` genutzt. Sie muss selbst gestartet sein."
 
 
-def do_install_draw(progress=gr.Progress()):
+def draw_status_text():
     from . import comic as CO
+    lines = []
+    for k, v in CO.MODELLE.items():
+        mark = "✅ installiert" if CO.installed(k) else f"nicht installiert ({v['groesse']}, wird beim ersten Comic geladen)"
+        akt = " ← **aktiv**" if k == CO.modell() else ""
+        lines.append(f"- {v['name']}: {mark}{akt}")
+    return "\n".join(lines) + f"\n\nFormat: **{CO.FORMATE[CO.comic_format()]}**"
+
+
+def save_comic_settings(model_name, fmt_name, style):
+    from . import comic as CO
+    C.save("einstellungen", {**C.settings(), "comic_modell": CO.MODELL_NAMEN.get(model_name, "qualitaet"),
+                             "comic_format": CO.FORMAT_NAMEN.get(fmt_name, "manhwa"),
+                             "comic_stil": (style or "").strip()})
+    return "💾 Gespeichert.\n\n" + draw_status_text()
+
+
+def do_install_draw(model_name=None, progress=gr.Progress()):
+    from . import comic as CO
+    m = CO.MODELL_NAMEN.get(model_name) or CO.modell()
     try:
-        CO.install(lambda f, m: progress(f, desc=m))
+        CO.install(lambda f, msg: progress(f, desc=msg), m)
     except Exception as e:
         raise gr.Error(f"Installation fehlgeschlagen: {e}")
-    return "✅ Bildgenerator installiert."
+    return draw_status_text()
 
 
 def do_storage_refresh():
@@ -985,10 +1022,9 @@ def build():
                         comic_btn = gr.Button("📝 Comic-Vorlage (neu) schreiben", scale=2)
                     draw_status = gr.Markdown("Malt aus der Comic-Vorlage jedes Panel auf deiner Grafikkarte und setzt "
                                               "es mit Sprechblasen zu Seiten zusammen. Charakterbilder dienen als Vorlage. "
-                                              "Beim ersten Mal wird der Bildgenerator geladen (ca. 9 GB).",
+                                              "Format und Bildmodell stellst du unter ⚙️ Einstellungen ein. Beim ersten Mal wird das Bildmodell geladen (Hohe Qualität ca. 20 GB).",
                                               elem_classes=["status-card"])
-                    comic_pages = gr.Gallery(label="Comic-Seiten", columns=2, height=720, object_fit="contain",
-                                             allow_preview=True)
+                    comic_pages = gr.HTML("", elem_classes=["comic-view"])
                     comic_pdf = gr.File(label="Comic als PDF", visible=False, interactive=False)
                     with gr.Accordion("Comic-Vorlage (Text) – hier kannst du Panels von Hand korrigieren", open=False):
                         gr.Markdown("Tipp: Schreib in **Im Bild** die Charakternamen, dann nimmt der Comic deren "
@@ -1096,13 +1132,22 @@ def build():
                 model = gr.Textbox(label="Modellname (leer = automatisch)", value=st["llm_model"])
             gr.Markdown("### 🎨 Bildgenerator (für die Comic-Seiten)")
             from . import comic as _comic
-            draw_md = gr.Markdown("✅ Installiert (FLUX.2-klein, läuft auf der Grafikkarte)." if _comic.installed() else
-                                  "Noch nicht installiert – wird beim ersten Comic automatisch geladen (ca. 9 GB).")
-            comic_style = gr.Textbox(label="Zeichenstil", value=st.get("comic_stil") or _comic.STYLE_DEFAULT,
-                                     info="Englisch funktioniert am besten, z. B. „black and white manga, screentone shading“")
+            draw_md = gr.Markdown(draw_status_text())
             with gr.Row():
-                style_save = gr.Button("Stil speichern")
-                draw_inst = gr.Button("Bildgenerator jetzt installieren")
+                comic_model = gr.Dropdown([v["name"] for v in _comic.MODELLE.values()], label="Bildmodell",
+                                          value=_comic.MODELLE[_comic.modell()]["name"],
+                                          info="Hohe Qualität ist langsamer (grob 1–2 Min. pro Panel), hält die "
+                                               "Charaktere aber deutlich besser")
+                comic_fmt = gr.Dropdown(list(_comic.FORMATE.values()), label="Comic-Format",
+                                        value=_comic.FORMATE[_comic.comic_format()])
+            _own = (st.get("comic_stil") or "").strip()
+            comic_style = gr.Textbox(label="Eigener Zeichenstil (optional)",
+                                     value="" if _own in list(_comic.STILE.values()) + [_comic.STYLE_DEFAULT] else _own,
+                                     placeholder="leer = passender Stil zum Format (Manhwa: Farbe, Manga: Schwarz-Weiß mit Rasterfolie)",
+                                     info="Englisch funktioniert am besten, z. B. „solo leveling style manhwa, dark atmosphere“")
+            with gr.Row():
+                style_save = gr.Button("Comic-Einstellungen speichern")
+                draw_inst = gr.Button("Gewähltes Bildmodell jetzt installieren")
             gr.Markdown("### 💾 Speicher")
             gr.Markdown("Alle Modelle, Downloads und Zwischendateien liegen im Programmordner – nichts im "
                         "Benutzerordner oder im Windows-Temp.")
@@ -1231,9 +1276,8 @@ def build():
         strata_preset_dd.input(save_preset, strata_preset_dd, ki_md)
         dbg_btn.click(do_debug, None, [dbg_md, dbg_text, dbg_file])
         sto_refresh.click(do_storage_refresh, None, sto_md)
-        style_save.click(lambda t: (C.save("einstellungen", {**C.settings(), "comic_stil": t.strip()}),
-                                    "Stil gespeichert.")[1], comic_style, draw_md)
-        draw_inst.click(do_install_draw, None, draw_md)
+        style_save.click(save_comic_settings, [comic_model, comic_fmt, comic_style], draw_md)
+        draw_inst.click(do_install_draw, comic_model, draw_md)
         sto_temp.click(do_clear_temp, None, [sto_md, sto_status])
         sto_whisper.click(do_remove_whisper, None, [sto_md, sto_status])
         sto_builtin.click(do_remove_builtin, None, [sto_md, sto_status])
