@@ -3,7 +3,24 @@ import json
 import os
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]          # .../DnD-Chronist
+import sys as _sys
+
+
+def _root():
+    """Wo die Daten liegen: Windows im Programmordner, Linux (installiert) unter ~/.local/share."""
+    if os.environ.get("ASCANDIR_HOME"):
+        return Path(os.environ["ASCANDIR_HOME"]).expanduser()
+    if getattr(_sys, "frozen", False):
+        if _sys.platform == "win32":
+            return Path(_sys.executable).resolve().parent
+        base = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+        return base / "ascandir-sessionrecorder"
+    return Path(__file__).resolve().parents[2]
+
+
+ROOT = _root()
+ROOT.mkdir(parents=True, exist_ok=True)
+APP_DIR = Path(getattr(_sys, "_MEIPASS", Path(__file__).resolve().parents[1]))   # Programmdateien (VERSION, assets)
 DATA = ROOT / "daten"
 MODELS = DATA / "modelle"
 SESSIONS = ROOT / "Sessions"
@@ -23,7 +40,7 @@ def pin_storage_env():
     env = {
         "HF_HOME": HF_CACHE, "HF_HUB_CACHE": HF_CACHE / "hub", "HF_XET_CACHE": HF_CACHE / "xet",
         "HUGGINGFACE_HUB_CACHE": HF_CACHE / "hub", "XDG_CACHE_HOME": DATA / "cache",
-        "GRADIO_TEMP_DIR": TEMP / "gradio", "TEMP": TEMP, "TMP": TEMP, "TMPDIR": TEMP,
+        "TEMP": TEMP, "TMP": TEMP, "TMPDIR": TEMP,
         "PIP_CACHE_DIR": DATA / "cache" / "pip", "UV_CACHE_DIR": DATA / "cache" / "uv",
     }
     for k, v in env.items():

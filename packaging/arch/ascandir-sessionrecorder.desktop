@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Ascandir SessionRecorder
+GenericName=D&D-Session-Recorder
+Comment=D&D-Sessions aufnehmen, Chronik und Comic mit lokaler KI
+Exec=ascandir-sessionrecorder
+Icon=ascandir-sessionrecorder
+Terminal=false
+Categories=AudioVideo;Audio;Recorder;Game;
+Keywords=DnD;Discord;Aufnahme;Chronik;Comic;
+StartupWMClass=ascandir-sessionrecorder

@@ -271,12 +271,12 @@ func runWizard(update bool) {
 					// Seite 0 – Willkommen
 					Composite{AssignTo: &w.pages[0], Layout: VBox{MarginsZero: true, Alignment: AlignHNearVNear}, Children: []Widget{
 						TextLabel{Font: Font{Family: "Segoe UI", PointSize: 10}, Text: "Der Ascandir SessionRecorder nimmt deine Discord-Session auf (nur Ton: dein Mikro und Discord), " +
-							"erkennt, wer gerade spricht, schreibt alles ab und macht daraus eine Chronik – auf Wunsch auch eine Comic-Vorlage.\r\n\r\n" +
+							"erkennt, wer gerade spricht, schreibt alles ab und macht daraus eine Chronik – auf Wunsch auch fertige Comic-Seiten.\r\n\r\n" +
 							"Das Setup richtet alles Nötige ein:\r\n" +
-							"   •  Python (eigene Kopie, ändert nichts an deinem System)\r\n" +
+							"   •  das Programm selbst (eigenständig, ändert nichts an deinem System)\r\n" +
 							"   •  Microsoft Visual C++ Laufzeit, falls sie fehlt\r\n" +
 							"   •  die KI-Modelle für Stimmerkennung und Spracherkennung\r\n\r\n" +
-							"Einmalig werden ca. 3 GB heruntergeladen. Danach läuft alles offline – keine Aufnahme verlässt deinen PC.\r\n\r\n" +
+							"Einmalig werden ca. 4 GB heruntergeladen. Danach läuft alles offline – keine Aufnahme verlässt deinen PC.\r\n\r\n" +
 							"Klicke auf „Weiter“, um fortzufahren."},
 						VSpacer{},
 					}},

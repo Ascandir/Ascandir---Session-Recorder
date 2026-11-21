@@ -27,7 +27,8 @@ var payload embed.FS
 const appVersion = "1.3.0"
 
 const (
-	uvURL   = "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip"
+	repoURL = "https://github.com/Ascandir/Ascandir---Session-Recorder"
+	zipName = "Ascandir-SessionRecorder-Windows.zip"
 	vcURL   = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
 	regKey  = `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\DnD-Chronist`
 	appName = "Ascandir - SessionRecorder"
@@ -115,9 +116,29 @@ func runLogged(ui UI, dir string, env []string, name string, args ...string) err
 	return err
 }
 
+type progressWriter struct {
+	ui    UI
+	total int64
+	done  int64
+	last  time.Time
+}
+
+func (p *progressWriter) Write(b []byte) (int, error) {
+	p.done += int64(len(b))
+	if time.Since(p.last) > 700*time.Millisecond {
+		p.last = time.Now()
+		if p.total > 0 {
+			p.ui.Log(fmt.Sprintf("… %d von %d MB", p.done/1000000, p.total/1000000))
+		} else {
+			p.ui.Log(fmt.Sprintf("… %d MB", p.done/1000000))
+		}
+	}
+	return len(b), nil
+}
+
 func download(ui UI, url, dest string) error {
 	ui.Log("Lade " + url)
-	c := &http.Client{Timeout: 30 * time.Minute}
+	c := &http.Client{Timeout: 60 * time.Minute}
 	r, err := c.Get(url)
 	if err != nil {
 		return err
@@ -130,7 +151,7 @@ func download(ui UI, url, dest string) error {
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(f, r.Body)
+	_, err = io.Copy(io.MultiWriter(f, &progressWriter{ui: ui, total: r.ContentLength}), r.Body)
 	f.Close()
 	if err != nil {
 		return err
@@ -163,8 +184,65 @@ func unzipOne(zipPath, name, dest string) error {
 	return fmt.Errorf("%s nicht im Archiv gefunden", name)
 }
 
+// unzipAll entpackt das Programm-Archiv; der oberste Ordner im Archiv (z. B. "SessionRecorder/") wird weggelassen.
+func unzipAll(ui UI, zipPath, dest string) error {
+	z, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return err
+	}
+	defer z.Close()
+	n := 0
+	for _, f := range z.File {
+		if cancel {
+			return fmt.Errorf("abgebrochen")
+		}
+		name := filepath.FromSlash(f.Name)
+		if i := strings.IndexAny(name, `\/`); i >= 0 && strings.EqualFold(name[:i], "SessionRecorder") {
+			name = name[i+1:]
+		}
+		if name == "" || strings.Contains(name, "..") {
+			continue
+		}
+		target := filepath.Join(dest, name)
+		if f.FileInfo().IsDir() {
+			os.MkdirAll(target, 0o755)
+			continue
+		}
+		os.MkdirAll(filepath.Dir(target), 0o755)
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		out, err := os.Create(target)
+		if err != nil {
+			rc.Close()
+			return err
+		}
+		_, err = io.Copy(out, rc)
+		out.Close()
+		rc.Close()
+		if err != nil {
+			return err
+		}
+		n++
+		if n%500 == 0 {
+			ui.Log(fmt.Sprintf("… %d Dateien entpackt", n))
+		}
+	}
+	return nil
+}
+
+// removeOldProgram löscht alte Programmteile (Python-Version bis 2.x und die vorige Version); Daten bleiben.
+func removeOldProgram(root string) {
+	for _, d := range []string{"app", "venv", "python", "tools", "cache", "_internal"} {
+		os.RemoveAll(filepath.Join(root, d))
+	}
+	for _, f := range []string{"SessionRecorder.exe", "DnD-Chronist.exe"} {
+		os.Remove(filepath.Join(root, f))
+	}
+}
+
 func writePayload(root string) error {
-	os.RemoveAll(filepath.Join(root, "app")) // alter Programmcode; Daten bleiben
 	os.Remove(filepath.Join(root, "DnD-Chronist.exe"))
 	os.Remove(filepath.Join(root, "DnD-Chronist-Setup.exe"))
 	return fs.WalkDir(payload, "payload", func(p string, d fs.DirEntry, err error) error {
@@ -261,7 +339,7 @@ func vcRedistMissing() bool {
 
 func appRunning() bool {
 	c := &http.Client{Timeout: 800 * time.Millisecond}
-	r, err := c.Get("http://127.0.0.1:7860/")
+	r, err := c.Get("http://127.0.0.1:7863/status")
 	if err != nil {
 		return false
 	}
@@ -299,19 +377,9 @@ func freeGB(dir string) float64 {
 
 func Install(o Options, ui UI) error {
 	root := o.Dir
-	const total = 6
-	env := []string{
-		"UV_PYTHON_INSTALL_DIR=" + filepath.Join(root, "python"),
-		"UV_CACHE_DIR=" + filepath.Join(root, "cache"),
-		"PIP_CACHE_DIR=" + filepath.Join(root, "cache", "pip"),
-		"TEMP=" + filepath.Join(root, "daten", "temp"),
-		"TMP=" + filepath.Join(root, "daten", "temp"),
-		"UV_NO_PROGRESS=1",
-		"PYTHONUTF8=1",
-		"PYTHONIOENCODING=utf-8",
-	}
+	const total = 5
 
-	ui.Step(1, total, "Programmdateien werden kopiert …")
+	ui.Step(1, total, "Programmordner wird vorbereitet …")
 	if err := os.MkdirAll(filepath.Join(root, "daten", "temp"), 0o755); err != nil {
 		return err
 	}
@@ -340,38 +408,29 @@ func Install(o Options, ui UI) error {
 		ui.Log("Visual C++ Laufzeit ist vorhanden.")
 	}
 
-	ui.Step(3, total, "Python wird eingerichtet …")
-	tools := filepath.Join(root, "tools")
-	os.MkdirAll(tools, 0o755)
-	uv := filepath.Join(tools, "uv.exe")
-	zp := filepath.Join(tools, "uv.zip")
-	if err := download(ui, uvURL, zp); err != nil {
-		return err
+	ui.Step(3, total, "Programm wird geladen …")
+	zp := filepath.Join(root, "daten", "temp", zipName)
+	url := repoURL + "/releases/download/v" + appVersion + "/" + zipName
+	if err := download(ui, url, zp); err != nil {
+		return fmt.Errorf("Programm laden: %w", err)
 	}
-	if err := unzipOne(zp, "uv.exe", uv); err != nil {
-		return err
+	ui.Log("Programm wird entpackt …")
+	removeOldProgram(root)
+	if err := unzipAll(ui, zp, root); err != nil {
+		return fmt.Errorf("Programm entpacken: %w", err)
 	}
 	os.Remove(zp)
-	py := filepath.Join(root, "venv", "Scripts", "python.exe")
-	if _, err := os.Stat(py); err != nil {
-		if err := runLogged(ui, root, env, uv, "venv", "--python", "3.12", "venv"); err != nil {
-			return fmt.Errorf("Python einrichten: %w", err)
-		}
+	exe := filepath.Join(root, "SessionRecorder.exe")
+	if _, err := os.Stat(exe); err != nil {
+		return fmt.Errorf("SessionRecorder.exe fehlt nach dem Entpacken")
 	}
 
-	ui.Step(4, total, "Programmteile werden installiert …")
-	if err := runLogged(ui, root, env, uv, "pip", "install", "--python", py, "-r",
-		filepath.Join(root, "app", "requirements.txt")); err != nil {
-		return fmt.Errorf("Programmteile installieren: %w", err)
-	}
-
-	ui.Step(5, total, "KI-Modelle werden geladen (das dauert am längsten) …")
-	if err := runLogged(ui, root, env, py, filepath.Join(root, "app", "main.py"), "--modelle"); err != nil {
+	ui.Step(4, total, "KI-Modelle werden geladen (das dauert am längsten) …")
+	if err := runLogged(ui, root, nil, exe, "--modelle"); err != nil {
 		return fmt.Errorf("KI-Modelle laden: %w", err)
 	}
-	runLogged(ui, root, env, uv, "cache", "clean")
 
-	ui.Step(6, total, "Verknüpfungen werden angelegt …")
+	ui.Step(5, total, "Verknüpfungen werden angelegt …")
 	removeShortcuts()
 	if err := makeShortcuts(root, o.Desktop, o.StartMenu); err != nil {
 		ui.Log("Verknüpfung konnte nicht angelegt werden: " + err.Error())
@@ -391,10 +450,8 @@ func Install(o Options, ui UI) error {
 func Uninstall(root string, deleteData bool) {
 	removeShortcuts()
 	reg("delete", regKey, "/f")
-	for _, d := range []string{"app", "venv", "python", "tools", "cache"} {
-		os.RemoveAll(filepath.Join(root, d))
-	}
-	for _, f := range []string{"SessionRecorder.exe", "DnD-Chronist.exe", "ANLEITUNG.html", "icon.ico"} {
+	removeOldProgram(root)
+	for _, f := range []string{"ANLEITUNG.html", "icon.ico"} {
 		os.Remove(filepath.Join(root, f))
 	}
 	os.RemoveAll(filepath.Join(root, "daten", "modelle"))

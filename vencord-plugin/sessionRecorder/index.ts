@@ -16,7 +16,7 @@ import { ChannelStore, GuildMemberStore, MediaEngineStore, SelectedChannelStore,
 
 const Native = VencordNative.pluginHelpers.AscandirSessionRecorder as PluginNative<typeof import("./native")>;
 const logger = new Logger("AscandirSessionRecorder");
-const PLUGIN_VERSION = 2;
+const PLUGIN_VERSION = 3;
 
 const settings = definePluginSettings({
     port: {

@@ -343,14 +343,16 @@ def install_builtin(progress=lambda f, m: None):
         req = urllib.request.Request(LLAMA_RELEASE_API, headers={"User-Agent": "Ascandir-SessionRecorder"})
         with urllib.request.urlopen(req, timeout=30) as r:
             rel = json.load(r)
-        want = "bin-win-vulkan-x64.zip" if WIN else "bin-ubuntu-vulkan-x64.zip"
-        asset = next((a for a in rel["assets"] if a["name"].endswith(want)), None)
+        from .engines import extract, linux_asset
+        if WIN:
+            asset = next((a for a in rel["assets"] if a["name"].endswith("bin-win-vulkan-x64.zip")), None)
+        else:
+            asset = next((a for a in rel["assets"] if linux_asset(a["name"])), None)
         if not asset:
             raise RuntimeError("Keine passende KI-Engine im llama.cpp-Release gefunden.")
-        z = BUILTIN_DIR / "engine.zip"
+        z = BUILTIN_DIR / ("engine.zip" if asset["name"].endswith(".zip") else "engine.tar.gz")
         _download(asset["browser_download_url"], z, lambda f, m: progress(f * 0.1, m), "KI-Engine wird geladen")
-        with zipfile.ZipFile(z) as zf:
-            zf.extractall(BUILTIN_DIR / "engine")
+        extract(z, BUILTIN_DIR / "engine")
         z.unlink()
     model = BUILTIN_DIR / MODEL_NAME
     if not model.exists():
@@ -422,7 +424,7 @@ class KI:
                                    "Lokale KI → Strata-Einstellungen ein Preset aus.")
             self.preset = preset
             return [path, "launch", "--preset", preset, "--no-tui", "--yes"], "cli"
-        return ["cmd", "/c", path], "cli"
+        return (["cmd", "/c", path] if WIN else [path]), "cli"
 
     def _start(self, cmd, kind, cwd=None):
         log.info("KI-Start (%s): %s", kind, cmd)
@@ -432,6 +434,9 @@ class KI:
         kw = dict(stdout=logf, stderr=logf, cwd=cwd)
         if self.mode == "Strata":
             kw["env"] = C.ORIG_ENV           # Strata nutzt seine eigenen Ordner
+        elif kind == "server" and not WIN:
+            from .engines import env_for
+            kw["env"] = env_for(cmd[0])
         if kind in ("cli", "shell", "server"):
             kw["creationflags"] = NOWIN
             kw["stdin"] = subprocess.PIPE

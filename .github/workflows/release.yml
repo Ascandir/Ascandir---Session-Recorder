@@ -1,43 +1,149 @@
 name: Release bauen
 
+# Baut das eigenständige Programm für Windows (Setup + Programm-Archiv) und Linux (CachyOS/Arch-Paket)
+# und veröffentlicht alles als Release v<app/VERSION>.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      veroeffentlichen:
+        description: "Release veröffentlichen (aus = nur Probebau)"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
 
 jobs:
-  build:
+  version:
     runs-on: ubuntu-latest
+    outputs:
+      v: ${{ steps.v.outputs.v }}
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.24"
-          cache: false
-
-      - name: go-winres installieren
-        run: go install github.com/tc-hib/go-winres@v0.3.3
-
-      - name: Version prüfen
+      - id: v
         run: |
           V=$(cat app/VERSION)
           if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "v$V" != "${GITHUB_REF_NAME}" ]; then
             echo "Tag ${GITHUB_REF_NAME} passt nicht zu app/VERSION ($V)"; exit 1
           fi
-          echo "VERSION=$V" >> "$GITHUB_ENV"
+          echo "v=$V" >> "$GITHUB_OUTPUT"
 
+  windows:
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Abhängigkeiten
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r app/requirements.txt pyinstaller==6.22.3
+      - name: Programm bauen
+        run: pyinstaller packaging/sessionrecorder.spec --noconfirm
+      - name: Selbsttest
+        shell: pwsh
+        run: |
+          $env:ASCANDIR_HOME = "$env:RUNNER_TEMP\srtest"
+          $p = Start-Process -FilePath "dist\SessionRecorder\SessionRecorder.exe" -ArgumentList "--selbsttest" -Wait -PassThru
+          Get-Content "$env:RUNNER_TEMP\srtest\daten\selbsttest.txt"
+          if ($p.ExitCode -ne 0) { exit 1 }
+      - name: Archiv
+        run: 7z a -tzip -mx=5 Ascandir-SessionRecorder-Windows.zip .\dist\SessionRecorder
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: Ascandir-SessionRecorder-Windows.zip
+          compression-level: 0
+
+  linux:
+    needs: version
+    runs-on: ubuntu-22.04          # ältere glibc → läuft auf allen aktuellen Distributionen, auch CachyOS
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Systempakete
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libportaudio2 libegl1 libxkbcommon0 libxkbcommon-x11-0 libxcb-cursor0 \
+            libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libgl1 libpulse0 libfontconfig1 libdbus-1-3
+      - name: Abhängigkeiten
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r app/requirements.txt pyinstaller==6.22.3
+      - name: Programm bauen
+        run: pyinstaller packaging/sessionrecorder.spec --noconfirm
+      - name: Selbsttest
+        run: |
+          ASCANDIR_HOME="$RUNNER_TEMP/srtest" QT_QPA_PLATFORM=offscreen \
+            dist/ascandir-sessionrecorder/ascandir-sessionrecorder --selbsttest
+      - name: Archiv
+        run: tar -C dist -czf ascandir-sessionrecorder-linux-x86_64.tar.gz ascandir-sessionrecorder
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: ascandir-sessionrecorder-linux-x86_64.tar.gz
+          compression-level: 0
+
+  arch:
+    needs: [version, linux]
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux
+      - name: Paket bauen
+        run: |
+          pacman -Syu --noconfirm --needed base-devel
+          useradd -m builder
+          mkdir -p /tmp/pkg && cp packaging/arch/PKGBUILD packaging/arch/ascandir-sessionrecorder.desktop \
+            assets/icon.png ANLEITUNG.html /tmp/pkg/
+          tar -C /tmp/pkg -xzf ascandir-sessionrecorder-linux-x86_64.tar.gz
+          sed -i "s/^pkgver=.*/pkgver=${{ needs.version.outputs.v }}/" /tmp/pkg/PKGBUILD
+          chown -R builder /tmp/pkg
+          su builder -c "cd /tmp/pkg && PKGEXT=.pkg.tar.zst makepkg --nodeps --noconfirm"
+          cp /tmp/pkg/*.pkg.tar.zst .
+          ls -la *.pkg.tar.zst
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch
+          path: "*.pkg.tar.zst"
+          compression-level: 0
+
+  release:
+    needs: [version, windows, linux, arch]
+    if: github.event_name == 'push' || inputs.veroeffentlichen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: false
+      - name: go-winres installieren
+        run: go install github.com/tc-hib/go-winres@v0.3.3
       - name: Setup bauen
         run: WINRES="$(go env GOPATH)/bin/go-winres" ./build.sh
-
+      - uses: actions/download-artifact@v4
+        with:
+          path: art
+          merge-multiple: true
       - name: Release veröffentlichen
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ env.VERSION }}
-          name: SessionRecorder ${{ env.VERSION }}
+          tag_name: v${{ needs.version.outputs.v }}
+          name: SessionRecorder ${{ needs.version.outputs.v }}
           body_path: CHANGELOG-aktuell.md
-          files: Ascandir-SessionRecorder-Setup.exe
           make_latest: true
+          files: |
+            Ascandir-SessionRecorder-Setup.exe
+            art/Ascandir-SessionRecorder-Windows.zip
+            art/ascandir-sessionrecorder-linux-x86_64.tar.gz
+            art/*.pkg.tar.zst

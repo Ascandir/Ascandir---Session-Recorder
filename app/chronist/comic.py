@@ -14,6 +14,7 @@ import zipfile
 from pathlib import Path
 
 from . import config as C
+from .engines import env_for
 from .debuglog import log
 
 WIN = sys.platform == "win32"
@@ -133,9 +134,11 @@ def _state():
 def sd_cli():
     name = "sd-cli.exe" if WIN else "sd-cli"
     for p in ENGINE_DIR.rglob(name):
-        return p
+        if p.is_file():
+            return p
     for p in ENGINE_DIR.rglob("sd.exe" if WIN else "sd"):    # ältere Versionen
-        return p
+        if p.is_file():
+            return p
     return None
 
 
@@ -176,15 +179,15 @@ def install(progress=lambda f, m: None, m=None):
     if not sd_cli():
         progress(0.0, "Suche den neuesten Bildgenerator …")
         rel = _get_json(SD_RELEASE_API)
-        want = (lambda n: "win" in n and "vulkan" in n and n.endswith(".zip")) if WIN else \
-               (lambda n: "linux" in n.lower() and "vulkan" in n.lower() and n.endswith(".zip"))
+        from .engines import extract, linux_asset
+        want = (lambda n: "win" in n and "vulkan" in n and n.endswith(".zip")) if WIN else linux_asset
         asset = next((a for a in rel.get("assets", []) if want(a["name"].lower())), None)
         if not asset:
-            raise RuntimeError("Im stable-diffusion.cpp-Release gibt es kein Vulkan-Paket für Windows.")
-        z = DIR / "engine.zip"
+            raise RuntimeError("Im stable-diffusion.cpp-Release gibt es kein Vulkan-Paket für "
+                               + ("Windows." if WIN else "Linux."))
+        z = DIR / ("engine.zip" if asset["name"].endswith(".zip") else "engine.tar.gz")
         _download(asset["browser_download_url"], z, progress, "Bildgenerator wird geladen", 0.0, 0.05)
-        with zipfile.ZipFile(z) as zf:
-            zf.extractall(ENGINE_DIR)
+        extract(z, ENGINE_DIR)
         z.unlink()
         log.info("Bildgenerator installiert: %s", asset["name"])
     ms = dict(_mstate(st, m))
@@ -447,7 +450,7 @@ def _supports(exe, flag):
     if exe not in _HELP:
         try:
             r = subprocess.run([str(exe), "--help"], capture_output=True, text=True, encoding="utf-8",
-                               errors="replace", creationflags=NOWIN, cwd=str(exe.parent), env=C.ORIG_ENV, timeout=60)
+                               errors="replace", creationflags=NOWIN, cwd=str(exe.parent), env=env_for(exe), timeout=60)
             _HELP[exe] = r.stdout + r.stderr
         except Exception:
             _HELP[exe] = ""
@@ -479,7 +482,7 @@ def _run_sd(cmd, exe, logfile=None):
                 " ".join(x if " " not in x else f'"{x[:60]}…"' for x in cmd[1:]) + "\n")
         f.flush()
         p = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, creationflags=NOWIN,
-                             cwd=str(exe.parent), env=C.ORIG_ENV)
+                             cwd=str(exe.parent), env=env_for(exe))
         CURRENT["proc"] = p
         # Wächter: tut sich im Protokoll minutenlang nichts, hängt der Bildgenerator → beenden
         last_size, last_change, hung = -1, time.time(), False

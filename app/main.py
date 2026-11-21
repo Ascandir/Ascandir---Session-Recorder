@@ -2,7 +2,6 @@ import os
 import sys
 
 # Nichts nach außen senden
-os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 os.environ.setdefault("DO_NOT_TRACK", "1")
@@ -28,7 +27,34 @@ if __name__ == "__main__":
     if "--modelle" in sys.argv:
         from chronist import models
         models.ensure_all(config.settings()["whisper_model"])
+    elif "--selbsttest" in sys.argv:
+        # Für den Paketbau: lädt alle Bausteine einmal, ohne Fenster. Ergebnis auch in daten/selbsttest.txt
+        import importlib
+        import traceback
+        lines, ok = [], True
+        mods = ["faster_whisper", "ctranslate2", "sherpa_onnx", "soundfile", "sounddevice", "scipy.cluster",
+                "openai", "PIL", "psutil", "imageio_ffmpeg", "av", "PySide6.QtWidgets", "PySide6.QtMultimedia",
+                "chronist.pipeline", "chronist.recorder", "chronist.comic", "chronist.qt.app"]
+        if sys.platform == "win32":
+            mods.append("proctap")
+        for m in mods:
+            try:
+                importlib.import_module(m)
+                lines.append(f"ok {m}")
+            except Exception:
+                ok = False
+                lines.append(f"FEHLER {m}:\n{traceback.format_exc()}")
+        try:
+            import imageio_ffmpeg
+            lines.append("ffmpeg: " + imageio_ffmpeg.get_ffmpeg_exe())
+        except Exception as e:
+            ok = False
+            lines.append(f"FEHLER ffmpeg: {e}")
+        lines.append("SELBSTTEST OK" if ok else "SELBSTTEST FEHLGESCHLAGEN")
+        text = "\n".join(lines)
+        (config.DATA / "selbsttest.txt").write_text(text, encoding="utf-8")
+        print(text)
+        sys.exit(0 if ok else 1)
     else:
-        print("Ascandir - SessionRecorder startet ... (Fenster offen lassen, solange du das Tool benutzt)")
-        from chronist import ui
-        ui.launch()
+        from chronist.qt.app import launch
+        launch()

@@ -16,13 +16,36 @@ from . import config as C
 from .debuglog import log
 from .audio import FFMPEG, _NOWIN
 
-DISCORD_NAMES = {"discord.exe", "discordptb.exe", "discordcanary.exe", "vesktop.exe"}
+import os
+import sys
+
+LINUX = sys.platform.startswith("linux")
+DISCORD_NAMES = {"discord.exe", "discordptb.exe", "discordcanary.exe", "vesktop.exe",
+                 "discord", "discordptb", "discordcanary", "vesktop", ".vesktop-wrapped", "legcord", "webcord"}
+
+
+def _is_discord(p):
+    """Discord/Vesktop-Prozess? (Linux: Vesktop läuft oft als „electron“ mit vesktop im Aufruf)"""
+    n = (p.info.get("name") or "").lower()
+    if n in DISCORD_NAMES:
+        return True
+    if LINUX and n.startswith("electron"):
+        try:
+            return any("vesktop" in a.lower() or "discord" in a.lower() for a in (p.cmdline() or [])[:3])
+        except Exception:
+            return False
+    return False
 BRIDGE_PORT = 7863          # hier fragt das Vencord-Plugin, ob gerade aufgenommen wird
 
 
 # ---------- Geräte & Discord finden ----------
 def list_mics():
-    """[(Anzeigename, Geräte-Index)] – Standardmikro zuerst."""
+    """[(Anzeigename, Geräte-Index oder 'pulse:<Quelle>')] – Standardmikro zuerst."""
+    if LINUX:
+        from . import linux_audio
+        src = linux_audio.list_sources()
+        if src:
+            return src
     try:
         import sounddevice as sd
         apis = sd.query_hostapis()
@@ -53,14 +76,14 @@ def find_discord():
     procs = []
     for p in psutil.process_iter(["pid", "name", "ppid"]):
         try:
-            if (p.info["name"] or "").lower() in DISCORD_NAMES:
+            if _is_discord(p):
                 procs.append(p)
         except Exception:
             pass
+    pids = {p.info["pid"] for p in procs}
     for p in procs:
         try:
-            parent = psutil.Process(p.info["ppid"])
-            if (parent.name() or "").lower() not in DISCORD_NAMES:
+            if p.info["ppid"] not in pids:
                 return p.info["pid"]
         except Exception:
             return p.info["pid"]
@@ -163,6 +186,15 @@ class Recorder:
         tmp = C.DATA / "aufnahme_tmp"
         tmp.mkdir(exist_ok=True)
 
+        if isinstance(mic_index, str) and mic_index.startswith("pulse:"):
+            # Linux/PipeWire: Mikro über die „pulse“-Schnittstelle, Quelle per Umgebungsvariable wählen
+            src = mic_index[len("pulse:"):]
+            os.environ["PULSE_SOURCE"] = src
+            os.environ["PIPEWIRE_NODE"] = src
+            names = [d["name"] for d in sd.query_devices()]
+            mic_index = next((n for n in ("pulse", "pipewire", "default") if n in names), None)
+        elif isinstance(mic_index, str) and mic_index.isdigit():
+            mic_index = int(mic_index)
         dev = sd.query_devices(mic_index) if mic_index is not None else sd.query_devices(kind="input")
         mic_sr = int(dev["default_samplerate"]) or 48000
         mic_ch = max(1, min(2, int(dev["max_input_channels"])))
@@ -238,11 +270,23 @@ class Recorder:
                     self._stop.wait(3)
                     continue
                 try:
-                    from proctap import ProcessAudioCapture
-                    cap = ProcessAudioCapture(pid)
-                    cap.start()
+                    if LINUX:
+                        from . import linux_audio
+                        found = linux_audio.find_app_stream()
+                        if not found:
+                            self.discord_status = ("⏳ Discord läuft – warte auf den Ton (erscheint, sobald du im "
+                                                   "Sprachkanal bist).")
+                            self._stop.wait(3)
+                            continue
+                        cap = linux_audio.PwCapture(found[0])
+                        cap.start()
+                        log.info("Discord-Aufnahme verbunden (PipeWire-Strom %s, %s)", found[0], found[1])
+                    else:
+                        from proctap import ProcessAudioCapture
+                        cap = ProcessAudioCapture(pid)
+                        cap.start()
+                        log.info("Discord-Aufnahme verbunden (PID %s)", pid)
                     self.discord_status = "✅ Discord wird aufgenommen."
-                    log.info("Discord-Aufnahme verbunden (PID %s)", pid)
                 except Exception as e:
                     self.discord_status = f"⚠️ Discord-Ton nicht erreichbar: {e}"
                     log.warning("Discord-Ton nicht erreichbar: %s", e)
@@ -439,8 +483,34 @@ def start_bridge():
     import json
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+    import re
+    from urllib.parse import parse_qs, urlparse
+    write_lock = threading.Lock()
+
+    def _target(name):
+        """Zieldatei im Einzelspur-Ordner der laufenden (oder gerade endenden) Aufnahme."""
+        d = REC.spuren_dir
+        if d is None or not (REC.running or REC.stopping) or not re.fullmatch(r"[\w.-]{1,80}", name or ""):
+            return None
+        d.mkdir(parents=True, exist_ok=True)
+        return d / name
+
     class H(BaseHTTPRequestHandler):
+        def _body(self, limit):
+            n = int(self.headers.get("Content-Length") or 0)
+            if n > limit:
+                raise ValueError("zu groß")
+            return self.rfile.read(n)
+
+        def _ok(self, code=200):
+            self.send_response(code)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
         def do_POST(self):
+            u = urlparse(self.path)
+            if u.path in ("/pcm", "/meta", "/log"):
+                return self._data(u)
             # Das Plugin schickt mit, wer gerade im Sprachkanal ist
             try:
                 n = min(int(self.headers.get("Content-Length") or 0), 200_000)
@@ -454,6 +524,38 @@ def start_bridge():
         def do_GET(self):
             REC.plugin_info = {"alt": True}       # Plugin von vor 2.6.0 schickt keine Kanal-Infos
             self._answer()
+
+        def _data(self, u):
+            """Ab Plugin 3: Spuren kommen über die Brücke (Vesktop muss nicht selbst in den Ordner schreiben)."""
+            try:
+                if u.path == "/pcm":
+                    q = parse_qs(u.query)
+                    f = _target(q.get("file", [""])[0])
+                    off = int(q.get("offset", ["-1"])[0])
+                    data = self._body(8_000_000)
+                    if f is None or off < 0 or not f.name.endswith(".pcm"):
+                        return self._ok(409)
+                    with write_lock:
+                        with open(f, "r+b" if f.exists() else "w+b") as fh:
+                            fh.seek(off)
+                            fh.write(data)
+                elif u.path == "/meta":
+                    f = _target("spuren.json")
+                    data = self._body(2_000_000)
+                    if f is None:
+                        return self._ok(409)
+                    json.loads(data)
+                    f.write_bytes(data)
+                else:
+                    f = _target("plugin.log")
+                    data = self._body(20_000)
+                    if f is not None:
+                        with open(f, "a", encoding="utf-8") as fh:
+                            fh.write(time.strftime("[%Y-%m-%d %H:%M:%S] ") + data.decode("utf-8", "replace") + "\n")
+                self._ok()
+            except Exception as e:
+                log.warning("Plugin-Daten nicht geschrieben: %s", e)
+                self._ok(400)
 
         def _answer(self):
             if self.path.split("?")[0] != "/status":
@@ -492,7 +594,7 @@ def plugin_connected():
     return time.time() - REC.plugin_seen < 5
 
 
-PLUGIN_MIN_VERSION = 2
+PLUGIN_MIN_VERSION = 3
 
 
 def plugin_state():

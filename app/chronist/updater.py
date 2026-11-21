@@ -10,8 +10,8 @@ from pathlib import Path
 
 from . import config as C
 
-VERSION = (Path(__file__).resolve().parents[1] / "VERSION").read_text(encoding="utf-8").strip() \
-    if (Path(__file__).resolve().parents[1] / "VERSION").exists() else "0.0.0"
+VERSION = (C.APP_DIR / "VERSION").read_text(encoding="utf-8").strip() \
+    if (C.APP_DIR / "VERSION").exists() else "0.0.0"
 
 _cache = {}
 
@@ -42,7 +42,8 @@ def check(force=False):
         return {"fehler": f"GitHub antwortet nicht (HTTP {e.code})."}
     except Exception:
         return {"fehler": "Keine Internetverbindung zu GitHub."}
-    asset = next((a for a in d.get("assets", []) if a["name"].lower().endswith("setup.exe")), None)
+    suffix = "setup.exe" if sys.platform == "win32" else ".pkg.tar.zst"
+    asset = next((a for a in d.get("assets", []) if a["name"].lower().endswith(suffix)), None)
     neu = _ver(d.get("tag_name", "0")) > _ver(VERSION) and asset is not None
     _cache.clear()
     _cache.update({"neu": neu, "version": d.get("tag_name", "").lstrip("vV"),
@@ -59,7 +60,8 @@ def install(progress=lambda f, m: None):
     info = check()
     if not info.get("neu"):
         raise RuntimeError("Kein Update verfügbar.")
-    dest = C.TEMP / f"Ascandir-SessionRecorder-Setup-{info['version']}.exe"
+    name = info["url"].rsplit("/", 1)[-1] or f"Ascandir-SessionRecorder-{info['version']}"
+    dest = C.TEMP / name
     req = urllib.request.Request(info["url"], headers={"User-Agent": "Ascandir-SessionRecorder"})
     with urllib.request.urlopen(req, timeout=60) as r, open(dest, "wb") as f:
         total = int(r.headers.get("Content-Length") or 0)
@@ -75,5 +77,11 @@ def install(progress=lambda f, m: None):
     if sys.platform == "win32":
         subprocess.Popen([str(dest), "/update"], close_fds=True,
                          creationflags=0x00000008 | 0x00000200)  # DETACHED | NEW_PROCESS_GROUP
-    threading.Timer(1.5, lambda: os._exit(0)).start()
+    else:
+        # CachyOS/Arch: Paket mit pacman einspielen (fragt per Fenster nach dem Passwort), dann neu starten
+        import shlex
+        script = (f"sleep 2; pkexec pacman -U --noconfirm {shlex.quote(str(dest))} "
+                  f"&& (ascandir-sessionrecorder >/dev/null 2>&1 &)")
+        subprocess.Popen(["sh", "-c", script], start_new_session=True, close_fds=True,
+                         env=C.ORIG_ENV, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return info["version"]

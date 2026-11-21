@@ -7,6 +7,7 @@ SessionRecorder aufnimmt, und legt sie in den Aufnahmeordner.
 import json
 import os
 import shutil
+import sys
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -16,7 +17,8 @@ from .debuglog import log
 
 PLUGIN_TAG = "vencord-plugin"
 ASSET = "Vencord-SessionRecorder.zip"
-VENCORD_DIR = C.ROOT / "vencord"
+LINUX = sys.platform.startswith("linux")
+FLATPAK_ID = "dev.vencord.Vesktop"
 PLUGIN_NAME = "AscandirSessionRecorder"
 UA = {"User-Agent": "Ascandir-SessionRecorder"}
 
@@ -25,33 +27,62 @@ def _appdata():
     return Path(os.environ.get("APPDATA") or C.ORIG_ENV.get("APPDATA") or Path.home() / "AppData" / "Roaming")
 
 
+def _candidates():
+    if LINUX:
+        cfg = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+        return [cfg / "vesktop", cfg / "Vesktop", Path.home() / ".var" / "app" / FLATPAK_ID / "config" / "vesktop"]
+    return [_appdata() / "vesktop", _appdata() / "Vesktop"]
+
+
 def data_dir():
-    """Vesktop-Datenordner (normal oder portable)."""
-    for name in ("vesktop", "Vesktop"):
-        d = _appdata() / name
-        if d.exists():
-            return d
-    return None
+    """Vesktop-Datenordner (Windows: %APPDATA%\vesktop · Linux: ~/.config/vesktop oder Flatpak)."""
+    return next((d for d in _candidates() if d.exists()), None)
+
+
+def is_flatpak():
+    d = data_dir()
+    return bool(d and FLATPAK_ID in str(d))
+
+
+def vencord_dir():
+    """Wo unser Vencord liegt. Linux: im Vesktop-Datenordner, damit auch die Flatpak-Sandbox es lesen kann."""
+    if LINUX and data_dir():
+        return data_dir() / "ascandir-vencord"
+    return C.ROOT / "vencord"
 
 
 def vesktop_installed():
     if data_dir():
         return True
+    if LINUX:
+        return bool(shutil.which("vesktop"))
     local = Path(os.environ.get("LOCALAPPDATA") or C.ORIG_ENV.get("LOCALAPPDATA") or "")
     return bool(local) and (local / "vesktop").exists()
+
+
+def _is_vesktop(p):
+    n = (p.info.get("name") or "").lower()
+    if n in ("vesktop.exe", "vesktop", ".vesktop-wrapped"):
+        return True
+    if LINUX and n.startswith("electron"):
+        try:
+            return any("vesktop" in a.lower() for a in (p.cmdline() or [])[:3])
+        except Exception:
+            return False
+    return False
 
 
 def vesktop_running():
     try:
         import psutil
-        return any((p.info["name"] or "").lower() == "vesktop.exe" for p in psutil.process_iter(["name"]))
+        return any(_is_vesktop(p) for p in psutil.process_iter(["name"]))
     except Exception:
         return False
 
 
 def installed_version():
     try:
-        return (VENCORD_DIR / "version.txt").read_text(encoding="utf-8").strip()
+        return (vencord_dir() / "version.txt").read_text(encoding="utf-8").strip()
     except Exception:
         return ""
 
@@ -63,7 +94,7 @@ def configured():
         return False
     try:
         st = json.loads((d / "state.json").read_text(encoding="utf-8"))
-        return Path(st.get("vencordDir", "")).resolve() == VENCORD_DIR.resolve()
+        return Path(st.get("vencordDir", "")).resolve() == vencord_dir().resolve()
     except Exception:
         return False
 
@@ -78,9 +109,9 @@ def _release():
 def _vesktop_procs():
     import psutil
     out = []
-    for p in psutil.process_iter(["name", "exe"]):
+    for p in psutil.process_iter(["name", "exe", "ppid", "pid"]):
         try:
-            if (p.info["name"] or "").lower() == "vesktop.exe":
+            if _is_vesktop(p):
                 out.append(p)
         except Exception:
             pass
@@ -97,7 +128,15 @@ def install(progress=lambda f, m: None, restart=False):
                                "dann noch einmal klicken.")
         import time
         procs = _vesktop_procs()
-        exe = next((p.info["exe"] for p in procs if p.info.get("exe")), None)
+        pids = {p.info["pid"] for p in procs}
+        main = next((p for p in procs if p.info.get("ppid") not in pids), procs[0] if procs else None)
+        if is_flatpak():
+            exe = ["flatpak", "run", FLATPAK_ID]
+        elif main is not None:
+            try:
+                exe = main.cmdline() if LINUX else [main.info["exe"]]
+            except Exception:
+                exe = [main.info["exe"]] if main.info.get("exe") else None
         progress(0.02, "Vesktop wird kurz beendet …")
         for p in procs:
             try:
@@ -114,6 +153,8 @@ def install(progress=lambda f, m: None, restart=False):
             except Exception:
                 pass
         time.sleep(1)
+    if not data_dir():
+        _candidates()[0].mkdir(parents=True, exist_ok=True)
     progress(0.05, "Suche das neueste Plugin …")
     rel = _release()
     asset = next((a for a in rel.get("assets", []) if a["name"] == ASSET), None)
@@ -133,20 +174,20 @@ def install(progress=lambda f, m: None, restart=False):
     if not (new / "vencordDesktopMain.js").exists():
         raise RuntimeError("Das Plugin-Paket ist unvollständig.")
     (new / "version.txt").write_text(asset.get("updated_at", "") or rel.get("published_at", ""), encoding="utf-8")
-    shutil.rmtree(VENCORD_DIR, ignore_errors=True)
-    shutil.move(str(new), str(VENCORD_DIR))
+    shutil.rmtree(vencord_dir(), ignore_errors=True)
+    shutil.move(str(new), str(vencord_dir()))
 
     progress(0.85, "Vesktop wird eingestellt …")
     d = data_dir()
     if not d:
-        d = _appdata() / "vesktop"
+        d = _candidates()[0]
         d.mkdir(parents=True, exist_ok=True)
     sp = d / "state.json"
     try:
         st = json.loads(sp.read_text(encoding="utf-8")) if sp.exists() else {}
     except Exception:
         st = {}
-    st["vencordDir"] = str(VENCORD_DIR)
+    st["vencordDir"] = str(vencord_dir())
     sp.write_text(json.dumps(st, indent=4), encoding="utf-8")
     # Plugin in den Vencord-Einstellungen einschalten
     vp = d / "settings" / "settings.json"
@@ -157,12 +198,12 @@ def install(progress=lambda f, m: None, restart=False):
         vp.write_text(json.dumps(vs, indent=4), encoding="utf-8")
     except Exception as e:
         log.warning("Vencord-Einstellungen nicht angepasst: %s", e)
-    log.info("Vesktop-Plugin installiert (%s) und Vesktop umgestellt: %s", installed_version(), VENCORD_DIR)
+    log.info("Vesktop-Plugin installiert (%s) und Vesktop umgestellt: %s", installed_version(), vencord_dir())
     if exe:
         import subprocess
         progress(0.95, "Vesktop wird wieder gestartet …")
         try:
-            subprocess.Popen([exe], env=C.ORIG_ENV, close_fds=True,
+            subprocess.Popen(exe, env=C.ORIG_ENV, close_fds=True, start_new_session=LINUX,
                              creationflags=getattr(subprocess, "DETACHED_PROCESS", 0)
                              | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
         except Exception as e:
@@ -178,7 +219,7 @@ def uninstall():
         st = json.loads((d / "state.json").read_text(encoding="utf-8"))
         st.pop("vencordDir", None)
         (d / "state.json").write_text(json.dumps(st, indent=4), encoding="utf-8")
-    shutil.rmtree(VENCORD_DIR, ignore_errors=True)
+    shutil.rmtree(vencord_dir(), ignore_errors=True)
 
 
 def status_text():

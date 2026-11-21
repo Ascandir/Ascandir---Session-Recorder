@@ -1,0 +1,27 @@
+# Maintainer: Ascandir
+# Paket für Arch Linux / CachyOS. Wird in GitHub Actions aus dem fertig gebauten Programm erzeugt;
+# lokal: Ordner "ascandir-sessionrecorder" (PyInstaller-Ergebnis) neben dieses PKGBUILD legen und makepkg aufrufen.
+pkgname=ascandir-sessionrecorder
+pkgver=0.0.0
+pkgrel=1
+pkgdesc="D&D-Sessions aus Discord aufnehmen, Stimmen trennen, Chronik und Comic mit lokaler KI – alles auf deinem PC"
+arch=('x86_64')
+url="https://github.com/Ascandir/Ascandir---Session-Recorder"
+license=('custom')
+depends=('glibc' 'portaudio' 'pipewire' 'pipewire-pulse' 'libpulse' 'vulkan-icd-loader' 'fontconfig'
+         'libxkbcommon-x11' 'xcb-util-cursor' 'libglvnd' 'hicolor-icon-theme' 'polkit')
+optdepends=('vulkan-radeon: Grafikkarte für Comic und eingebaute KI (AMD)'
+            'nvidia-utils: Grafikkarte für Comic und eingebaute KI (NVIDIA)'
+            'vesktop: Einzelspuren pro Person')
+options=('!strip' '!debug')
+source=()
+
+package() {
+    install -d "$pkgdir/opt/$pkgname"
+    cp -a "$startdir/$pkgname/." "$pkgdir/opt/$pkgname/"
+    install -d "$pkgdir/usr/bin"
+    ln -s "/opt/$pkgname/$pkgname" "$pkgdir/usr/bin/$pkgname"
+    install -Dm644 "$startdir/$pkgname.desktop" "$pkgdir/usr/share/applications/$pkgname.desktop"
+    install -Dm644 "$startdir/icon.png" "$pkgdir/usr/share/icons/hicolor/256x256/apps/$pkgname.png"
+    install -Dm644 "$startdir/ANLEITUNG.html" "$pkgdir/usr/share/doc/$pkgname/ANLEITUNG.html"
+}
