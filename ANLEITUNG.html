@@ -24,14 +24,22 @@
 <h1>🎲 Ascandir · SessionRecorder</h1>
 <p class="sub">Nimmt eure Discord-Session auf, erkennt wer spricht, schreibt alles ab und macht daraus eine Chronik – und auf Wunsch fertige Comic-Seiten. Alles bleibt auf deinem PC.</p>
 
-<h2>Installieren (einmalig)</h2>
+<h2>Installieren unter Windows (einmalig)</h2>
 <ol>
   <li>Doppelklick auf <code>Ascandir-SessionRecorder-Setup.exe</code>.<br>
       Meldet Windows „Der Computer wurde durch Windows geschützt“: <b>Weitere Informationen → Trotzdem ausführen</b>. (Das kommt bei selbstgebauten Programmen ohne gekaufte Signatur.)</li>
-  <li>Dem Assistenten folgen – bei „Zielordner“ kannst du mit <b>Durchsuchen …</b> einen eigenen Ordner wählen (nicht unter „C:\Programme“). Das Setup richtet alles ein: Python, die Programmteile, ggf. die Microsoft-C++-Laufzeit und die KI-Modelle. Dauer ca. 5–15 Minuten.</li>
+  <li>Dem Assistenten folgen – bei „Zielordner“ kannst du mit <b>Durchsuchen …</b> einen eigenen Ordner wählen (nicht unter „C:\Programme“). Das Setup lädt das Programm, ggf. die Microsoft-C++-Laufzeit und die KI-Modelle. Dauer ca. 5–15 Minuten.</li>
   <li>Danach liegt <b>Ascandir - SessionRecorder</b> auf dem Desktop und im Startmenü.</li>
 </ol>
-<p>Nur beim Setup wird etwas heruntergeladen. Danach läuft alles offline. Deinstallieren geht über <b>Windows-Einstellungen → Apps</b>.</p>
+<p>Deinstallieren geht über <b>Windows-Einstellungen → Apps</b>.</p>
+
+<h2>Installieren unter CachyOS / Arch Linux</h2>
+<ol>
+  <li>Aus dem neuesten Release die Datei <code>ascandir-sessionrecorder-…-x86_64.pkg.tar.zst</code> herunterladen.</li>
+  <li>Im Terminal im Download-Ordner: <code>sudo pacman -U ascandir-sessionrecorder-*.pkg.tar.zst</code> – pacman installiert dabei auch fehlende Pakete (PipeWire, PortAudio, Vulkan …).</li>
+  <li>Danach findest du <b>Ascandir SessionRecorder</b> im Anwendungsmenü. Entfernen: <code>sudo pacman -R ascandir-sessionrecorder</code>.</li>
+</ol>
+<p>Unter Linux liegen deine Daten (Gruppen, Aufnahmen, Sessions, Modelle) in <code>~/.local/share/ascandir-sessionrecorder</code>. Die KI-Modelle werden beim ersten Auswerten geladen. Discord wird über PipeWire mitgeschnitten – nur der Ton der Discord- bzw. Vesktop-App, nichts anderes.</p>
 
 <h2>Gruppen</h2>
 <p>Du kannst mehrere Gruppen anlegen (Tab <b>👥 Gruppe</b> → „Neue Gruppe“), umbenennen und löschen. Jede Gruppe hat eigene Mitspieler, einen eigenen DM, eigene gelernte Stimmen, eigene Charakterbilder – und eigene Ordner: <code>Aufnahmen\&lt;Gruppe&gt;</code> und <code>Sessions\&lt;Gruppe&gt;</code>. Welche Gruppe gerade aktiv ist, wählst du in jedem Tab oben. Beim Löschen einer Gruppe bleiben ihre Aufnahmen und Sessions erhalten.</p>
@@ -70,7 +78,7 @@
     <li>Die Comic-Vorlage enthält Panels mit Szenen, Sprechblasen und Bild-Prompts. Setzt du zusätzlich das Häkchen <b>🎨 Comic-Seiten direkt malen</b>, malt das Tool die Seiten gleich mit.</li>
     <li>Oder später im Ergebnis-Tab <b>🎨 Comic</b> → <b>🎨 Comic-Seiten erstellen</b>: Jedes Panel wird lokal auf deiner Grafikkarte gemalt, die Bilder deiner Charaktere dienen als Vorlage, Sprechblasen kommen automatisch drauf. Unter ⚙️ Einstellungen wählst du das <b>Format</b> (Manhwa/Webtoon zum Scrollen, Manga-Seiten oder klassische Comic-Seiten), das <b>Bildmodell</b> (Hohe Qualität mit FLUX.2-klein 9B, ca. 20&nbsp;GB und 1–2 Minuten pro Panel, oder Schnell mit 4B, ca. 9&nbsp;GB) und optional einen eigenen Zeichenstil. Ergebnis: Webtoon-Abschnitte bzw. Seiten als PNG und eine <code>Comic.pdf</code> im Session-Ordner unter <code>comic</code>. Das Bildmodell wird beim ersten Mal in den Programmordner geladen.</li>
 </ol>
-<p>Der SessionRecorder läuft in einem eigenen Fenster. Fenster schließen (oder <b>⏻ Beenden</b>) beendet alles – auch eine laufende KI. Läuft noch eine Aufnahme, fragt das Tool vorher und speichert sie.</p>
+<p>Der SessionRecorder ist ein ganz normales Programm mit eigenem Fenster. Fenster schließen beendet alles – auch eine laufende KI und den Bildgenerator. Läuft noch eine Aufnahme, fragt das Tool vorher und speichert sie. Bei „Wer ist wer?“ hörst du jede Stimme direkt im Programm mit <b>▶ Anhören</b> an; die Comic-Seiten kannst du im Tab <b>🎨 Comic</b> durchscrollen.</p>
 
 <h2>Lokale KI</h2>
 <p>Unter <b>⚙️ Einstellungen → Lokale KI</b> wählst du:</p>
@@ -83,10 +91,10 @@
 <p>Mit <b>KI testen</b> siehst du, ob Starten, Antworten und Beenden klappen.</p>
 
 <h2>Speicher</h2>
-<p>Alles – Spracherkennung, Stimmerkennung, die eingebaute KI, Python, Downloads und Zwischendateien – liegt im <b>Programmordner</b>, den du beim Setup gewählt hast. Nichts landet im Benutzerordner oder im Windows-Temp. Unter <b>⚙️ Einstellungen → 💾 Speicher</b> siehst du, was wie viel Platz braucht, und kannst aufräumen: temporäre Dateien leeren, nicht genutzte Spracherkennungs-Modelle oder die eingebaute KI löschen. Strata verwaltet seine eigenen Modelle in seinem eigenen Ordner.</p>
+<p>Alles – Spracherkennung, Stimmerkennung, die eingebaute KI, der Bildgenerator, Downloads und Zwischendateien – liegt unter Windows im <b>Programmordner</b>, den du beim Setup gewählt hast (nichts im Benutzerordner oder im Windows-Temp), unter Linux in <code>~/.local/share/ascandir-sessionrecorder</code>. Unter <b>⚙️ Einstellungen → 💾 Speicher</b> siehst du, was wie viel Platz braucht, und kannst aufräumen: temporäre Dateien leeren, nicht genutzte Spracherkennungs-Modelle oder die eingebaute KI löschen. Strata verwaltet seine eigenen Modelle in seinem eigenen Ordner.</p>
 
 <h2>Updates</h2>
-<p>Oben rechts auf <b>⬆️ Updates</b> klicken. Gibt es eine neue Version, siehst du, was sich geändert hat, und installierst sie mit <b>Jetzt aktualisieren</b> – das Tool schließt sich, aktualisiert sich und startet neu. Gruppe, Bilder, Aufnahmen und Chroniken bleiben erhalten. Beim Start schaut das Tool auch von selbst nach (abschaltbar unter Einstellungen); dabei wird nur die Versionsnummer bei GitHub abgefragt.</p>
+<p>Oben rechts auf <b>⬆️ Updates</b> klicken. Gibt es eine neue Version, siehst du, was sich geändert hat, und installierst sie mit <b>Jetzt aktualisieren</b> – das Tool schließt sich, aktualisiert sich und startet neu (unter Linux fragt pacman einmal nach deinem Passwort). Gruppe, Bilder, Aufnahmen und Chroniken bleiben erhalten. Beim Start schaut das Tool auch von selbst nach (abschaltbar unter Einstellungen); dabei wird nur die Versionsnummer bei GitHub abgefragt.</p>
 
 <h3>Wo liegt was?</h3>
 <p>Alles liegt in deinem Installationsordner (Standard: <code>%LOCALAPPDATA%\Ascandir-SessionRecorder</code>) (Knopf <b>📂 Ordner öffnen</b> bringt dich zur Session):</p>
@@ -101,12 +109,12 @@
 <h2>Wenn etwas hakt</h2>
 <table>
   <tr><th>Problem</th><th>Lösung</th></tr>
-  <tr><td>„Discord läuft nicht“</td><td>Die Discord-<b>App</b> starten (Discord im Browser wird nicht erkannt). Startet Discord während der Aufnahme neu, verbindet sich das Tool von selbst wieder.</td></tr>
+  <tr><td>„Discord läuft nicht“</td><td>Die Discord-<b>App</b> (oder Vesktop) starten – Discord im Browser wird nicht erkannt. Startet Discord während der Aufnahme neu, verbindet sich das Tool von selbst wieder. Unter Linux erscheint der Discord-Ton erst, sobald du im Sprachkanal bist.</td></tr>
   <tr><td>Discord-Balken bewegt sich nicht</td><td>Kurz prüfen, ob du die anderen hörst. Manche Windows-Versionen vor 2020 unterstützen die Programm-Aufnahme nicht – dann Windows aktualisieren.</td></tr>
   <tr><td>Strata startet nicht / „hat nicht geantwortet“</td><td>Unter <b>⚙️ Einstellungen → Lokale KI → Strata-Einstellungen</b> den Pfad zur <code>Strata.exe</code> eintragen und <b>KI testen</b> drücken. Dauert das Laden länger, die Wartezeit erhöhen. Am schnellsten: <b>🐞 Debug-Log erstellen</b> und die Datei an Claude schicken. Nochmal Schritt 2 klicken – die Analyse muss nicht wiederholt werden.</td></tr>
   <tr><td>Sätze landen bei der falschen Person</td><td>Bei „Wer ist wer?“ prüfen. Sind zwei Leute zu einer Stimme verschmolzen: die richtige Anzahl eintragen und neu analysieren.</td></tr>
   <tr><td>Abschrift klingt unsauber</td><td>Unter <b>⚙️ Einstellungen → Spracherkennung</b> <code>large-v3</code> wählen (genauer, aber langsamer; lädt beim ersten Mal nochmal ca. 3&nbsp;GB).</td></tr>
-  <tr><td>Tool öffnet sich nicht</td><td>In <code>daten\log.txt</code> im Installationsordner steht, was schiefging – die Datei an Claude schicken.</td></tr>
+  <tr><td>Tool öffnet sich nicht</td><td>In <code>daten\log.txt</code> bzw. <code>daten\app.log</code> (Windows: im Installationsordner, Linux: in <code>~/.local/share/ascandir-sessionrecorder</code>) steht, was schiefging – die Datei an Claude schicken.</td></tr>
 </table>
 
 <div class="box warn"><b>Wichtig:</b> Sag deiner Runde vor der Aufnahme Bescheid. Gespräche ohne Zustimmung aufzunehmen ist in Deutschland strafbar (§ 201 StGB). Den Comic darfst du natürlich trotzdem als Überraschung behalten.</div>
