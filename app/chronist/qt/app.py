@@ -68,6 +68,23 @@ class MainWindow(QMainWindow):
         wl.addWidget(self.upd_bar)
         lay.addWidget(wrap)
 
+        # Hinweis beim ersten Start: Modelle fehlen noch
+        self.mod_bar = QFrame()
+        self.mod_bar.setObjectName("status")
+        ml = QHBoxLayout(self.mod_bar)
+        ml.setContentsMargins(16, 10, 16, 10)
+        ml.addWidget(label("📥 **Die KI-Modelle sind noch nicht geladen.** Sie kommen sonst beim ersten Auswerten bzw. "
+                           "Comic von selbst – oder du lädst jetzt alles vorab."), 1)
+        ml.addWidget(button("📥 Alle Modelle jetzt laden", "primary", slot=self._load_models_now))
+        ml.addWidget(button("✕", slot=self.mod_bar.hide))
+        self.mod_bar.hide()
+        wl.addWidget(self.mod_bar)
+        try:
+            from .. import models
+            self.mod_bar.setVisible(not models.all_present())
+        except Exception:
+            pass
+
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
         self.t_rec = AufnahmeTab()
@@ -105,6 +122,12 @@ class MainWindow(QMainWindow):
     def _recording_saved(self, path):
         self.t_eval.select_recording(path)
         self.tabs.setCurrentWidget(self.t_eval)
+
+    def _load_models_now(self):
+        self.mod_bar.hide()
+        self.tabs.setCurrentWidget(self.t_set)
+        self.t_set.ensureWidgetVisible(self.t_set.models_btn)
+        self.t_set.load_models()
 
     # ---------- Updates ----------
     def _show_update(self, info, manual=False):

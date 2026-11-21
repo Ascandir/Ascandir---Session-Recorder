@@ -25,6 +25,18 @@ class EinstellungenTab(QScrollArea):
         lay.setSpacing(14)
         st = C.settings()
 
+        # Modelle
+        mo = Card("📥 Modelle", "Alles, was für Auswertung und Comic gebraucht wird, auf einmal laden – dann läuft die "
+                  "erste Session ohne Wartezeit durch. Fehlendes wird sonst beim ersten Gebrauch automatisch geladen.")
+        self.models_md = label("")
+        mo.add(self.models_md)
+        self.models_btn = button("📥 Alle Modelle jetzt laden", "primary", slot=self.load_models)
+        mo.add(hbox(self.models_btn, button("⏹ Abbrechen", slot=cancel_all), None))
+        self.models_prog = StatusCard()
+        self.models_prog.hide()
+        mo.add(self.models_prog)
+        lay.addWidget(mo)
+
         # Debug
         d = Card("🐞 Fehlersuche")
         d.add(hbox(button("🐞 Debug-Log erstellen", slot=self.debug),
@@ -178,6 +190,7 @@ class EinstellungenTab(QScrollArea):
 
     # ---------- Befüllen ----------
     def refresh(self):
+        self.models_md.setText(self._models_status())
         self.ki_md.set(self._ki_status())
         self.draw_md.setText(self._draw_status())
         from .. import vesktop as V
@@ -186,6 +199,35 @@ class EinstellungenTab(QScrollArea):
         self.sto_md.setText(storage.overview())
         self.vlist.clear()
         self.vlist.addItems(list(C.voices()))
+
+    def _models_status(self):
+        from .. import models
+        try:
+            rows = models.status()
+        except Exception as e:
+            return f"⚠️ Status nicht lesbar: {e}"
+        return "\n".join(f"- {'✅' if ok else '⬜'} {name}" + ("" if ok else f" – fehlt ({hint})")
+                         for name, ok, hint in rows)
+
+    def load_models(self):
+        from .. import models
+        self.models_btn.setEnabled(False)
+        self.models_prog.show()
+        self.models_prog.set("⏳ Modelle werden geladen – du kannst das Programm dabei normal weiterbenutzen.")
+
+        def done(_):
+            self.models_btn.setEnabled(True)
+            self.models_prog.done("✅ Alle Modelle sind da – ab jetzt läuft alles offline.")
+            self.refresh()
+
+        def fail(m):
+            self.models_btn.setEnabled(True)
+            self.models_prog.done(f"⚠️ Laden fehlgeschlagen: {m}")
+            self.refresh()
+        job = run_job(lambda progress: models.install_all(progress), on_done=done, on_error=fail,
+                      on_progress=self.models_prog.progress, name="Modelle laden")
+        if not job:
+            self.models_btn.setEnabled(True)
 
     def _ki_status(self):
         st = C.settings()
