@@ -10,6 +10,8 @@ from pathlib import Path
 
 from . import config as C
 
+SPAWNED = set()      # vom Update gestartete Prozesse – dürfen beim Beenden NICHT mitbeendet werden
+
 VERSION = (C.APP_DIR / "VERSION").read_text(encoding="utf-8").strip() \
     if (C.APP_DIR / "VERSION").exists() else "0.0.0"
 
@@ -74,14 +76,17 @@ def install(progress=lambda f, m: None):
             done += len(chunk)
             if total:
                 progress(done / total, f"Update wird geladen … {done / 1e6:.0f} von {total / 1e6:.0f} MB")
+    global SPAWNED
     if sys.platform == "win32":
-        subprocess.Popen([str(dest), "/update"], close_fds=True,
-                         creationflags=0x00000008 | 0x00000200)  # DETACHED | NEW_PROCESS_GROUP
+        p = subprocess.Popen([str(dest), "/update"], close_fds=True,
+                             creationflags=0x00000008 | 0x00000200)  # DETACHED | NEW_PROCESS_GROUP
+        SPAWNED.add(p.pid)
     else:
         # CachyOS/Arch: Paket mit pacman einspielen (fragt per Fenster nach dem Passwort), dann neu starten
         import shlex
         script = (f"sleep 2; pkexec pacman -U --noconfirm {shlex.quote(str(dest))} "
                   f"&& (ascandir-sessionrecorder >/dev/null 2>&1 &)")
-        subprocess.Popen(["sh", "-c", script], start_new_session=True, close_fds=True,
-                         env=C.ORIG_ENV, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        p = subprocess.Popen(["sh", "-c", script], start_new_session=True, close_fds=True,
+                             env=C.ORIG_ENV, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        SPAWNED.add(p.pid)
     return info["version"]

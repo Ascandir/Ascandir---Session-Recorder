@@ -157,7 +157,7 @@ func (w *wizard) onNext() {
 		}
 		for appRunning() {
 			if walk.MsgBox(w.mw, "SessionRecorder läuft",
-				"Der SessionRecorder ist gerade geöffnet.\nBitte im Browser oben rechts auf „Beenden“ klicken und dann OK drücken.",
+				"Der SessionRecorder ist gerade geöffnet.\nBitte das SessionRecorder-Fenster schließen und dann OK drücken.",
 				walk.MsgBoxOKCancel|walk.MsgBoxIconInformation) != walk.DlgCmdOK {
 				return
 			}
@@ -361,7 +361,7 @@ func runUninstall() {
 		return
 	}
 	for appRunning() {
-		if walk.MsgBox(nil, "SessionRecorder läuft", "Bitte den SessionRecorder zuerst beenden (im Browser oben rechts „Beenden“).",
+		if walk.MsgBox(nil, "SessionRecorder läuft", "Bitte den SessionRecorder zuerst schließen.",
 			walk.MsgBoxOKCancel|walk.MsgBoxIconInformation) != walk.DlgCmdOK {
 			return
 		}

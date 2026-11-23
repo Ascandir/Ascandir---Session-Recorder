@@ -1,2 +1,3 @@
-- **📥 „Alle Modelle jetzt laden“:** Unter ⚙️ Einstellungen lädt ein Klick alles vorab, was Auswertung und Comic brauchen – Stimmerkennung, Spracherkennung, den gewählten Bildgenerator und (nur wenn kein Strata da ist) die eingebaute KI. Mit Übersicht, was schon da ist und was fehlt, Fortschrittsanzeige und Abbrechen
-- Fehlen beim Start noch Modelle (z. B. frisch unter CachyOS installiert), zeigt das Fenster oben einen Hinweis mit demselben Knopf
+- **Update-Knopf repariert:** In 3.0.0/3.0.1 hat das Programm beim Schließen das gerade gestartete Setup gleich mit beendet – das Update lud nur kurz etwas herunter und dann passierte nichts. Jetzt läuft das Setup weiter (Windows) bzw. pacman (Linux)
+- **Wer noch 3.0.0 hat:** einmal von Hand `Ascandir-SessionRecorder-Setup.exe` aus diesem Release starten – danach klappen Updates wieder mit einem Klick
+- Setup-Meldungen sprechen nicht mehr vom Browser

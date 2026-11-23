@@ -195,7 +195,13 @@ def shutdown():
         pass
     try:
         import psutil
-        kids = psutil.Process().children(recursive=True)
+        keep = set(U.SPAWNED)
+        for pid in list(keep):                      # das Setup und alles, was es startet, weiterlaufen lassen
+            try:
+                keep |= {c.pid for c in psutil.Process(pid).children(recursive=True)}
+            except Exception:
+                pass
+        kids = [k for k in psutil.Process().children(recursive=True) if k.pid not in keep]
         for k in kids:
             try:
                 k.terminate()
